@@ -1,0 +1,67 @@
+/** vidIQ accepts prompts up to 2000 characters; the rest is our instruction. */
+export const MAX_TEMPLATE_LENGTH = 1500;
+
+export const DEFAULT_TEMPLATE = [
+  "Summary: 2-3 sentences on what the video covers and who it is for.",
+  "Key Points: 3-5 bullet points with the main takeaways.",
+  "Topics: a comma-separated list of the main topics.",
+].join("\n");
+
+const INSTRUCTION = [
+  "Write a summary of this video to be used as its YouTube description.",
+  "Follow the template below exactly: use the same section names, in the same order,",
+  "with nothing before the first section or after the last one.",
+  'Write plain text without Markdown symbols such as # or **. Use "- " for bullet points.',
+].join(" ");
+
+export function buildPrompt(template: string): string {
+  const body = template.trim();
+  if (!body) throw new Error("Write a summary template before starting.");
+  if (body.length > MAX_TEMPLATE_LENGTH) {
+    throw new Error(`Keep the template under ${MAX_TEMPLATE_LENGTH} characters (it has ${body.length}).`);
+  }
+  return `${INSTRUCTION}\n\nTemplate:\n${body}`;
+}
+
+/** Section names from "Name: ..." lines and Markdown headings. */
+export function templateSections(template: string): string[] {
+  const sections: string[] = [];
+  for (const line of template.split(/\r?\n/)) {
+    const heading = line.match(/^\s*#{1,6}\s+(.+?)\s*:?\s*$/);
+    const labelled = line.match(/^\s*\**([A-Za-z][^:*\n]{0,60}?)\**\s*:/);
+    const name = (heading?.[1] ?? labelled?.[1])?.replace(/[*_]/g, "").trim();
+    if (name) sections.push(name);
+  }
+  return sections;
+}
+
+/** Template sections that no output line starts with. */
+export function missingSections(template: string, output: string): string[] {
+  const starts = output
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s#>*_-]+/, "").replace(/[*_]/g, "").toLowerCase());
+  return templateSections(template).filter((name) => !starts.some((s) => s.startsWith(name.toLowerCase())));
+}
+
+/** Strips Markdown so the text reads cleanly in a plain-text YouTube description. */
+export function toPlainText(markdown: string): string {
+  const lines = markdown
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .filter((line) => !/^\s*([-*_])(\s*\1){2,}\s*$/.test(line))
+    .map((line) =>
+      line
+        .replace(/^\s{0,3}#{1,6}\s+/, "")
+        .replace(/^\s*>\s?/, "")
+        .replace(/^(\s*)[*+]\s+/, "$1- ")
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, "$1 ($2)")
+        .replace(/\*\*(.+?)\*\*/g, "$1")
+        .replace(/__(.+?)__/g, "$1")
+        .replace(/(^|[^\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\w)/g, "$1$2")
+        .replace(/(^|\W)_(?!\s)([^_\n]+?)(?<!\s)_(?!\w)/g, "$1$2")
+        .replace(/`([^`]+)`/g, "$1")
+        .trimEnd(),
+    );
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
