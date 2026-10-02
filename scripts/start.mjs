@@ -6,7 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
-const port = Number(process.env.PORT) || 3000;
+/** Fixed, uncommon port; it must match the "start" script in package.json. */
+const port = 4817;
 const url = `http://localhost:${port}`;
 const isWindows = process.platform === "win32";
 
@@ -95,8 +96,8 @@ if (mtime(path.join(root, ".next/BUILD_ID")) < newest(sources)) {
 }
 
 step(4, `Starting Video Summaries at ${url} ...`);
-// Listen on this computer only: the app has no login and holds the vidIQ connection.
-const server = spawn(`npm run start -- --hostname localhost --port ${port}`, {
+// The "start" script listens on localhost only: the app has no login and holds the vidIQ connection.
+const server = spawn("npm run start", {
   cwd: root,
   stdio: "inherit",
   shell: true,

@@ -23,7 +23,7 @@ Double-click **`Start.bat`**. It will:
 1. Use the Node.js on your computer if it is version 22.13 or later. Otherwise it downloads a private copy of Node.js into this folder (`.runtime/`) and checks its integrity. Nothing is installed globally, and no admin rights are needed.
 2. Install the app's dependencies into this folder (first run only).
 3. Build an optimized version of the app (first run, and after code changes).
-4. Start the app at http://localhost:3000 and open it in your browser.
+4. Start the app at http://localhost:4817 and open it in your browser.
 
 Every step is labeled in the window, including what is being downloaded or installed. Keep the window open while you use the app; close it to stop the app.
 
