@@ -154,7 +154,7 @@ export function setJobStatus(db: Db, id: string, status: JobStatus, pauseReason:
   const now = Date.now();
   db.prepare(
     `UPDATE jobs SET status = ?, pause_reason = ?,
-       started_at = CASE WHEN ? = 'running' THEN COALESCE(started_at, ?) ELSE started_at END,
+       started_at = CASE WHEN ? = 'running' THEN ? ELSE started_at END,
        finished_at = CASE WHEN ? = 'completed' THEN ? ELSE NULL END
      WHERE id = ?`,
   ).run(status, pauseReason, status, now, status, now, id);

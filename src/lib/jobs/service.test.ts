@@ -49,7 +49,8 @@ describe("getTableInfo", () => {
     const info = getTableInfo(db, store, jobId);
     expect(info.headers).toEqual(["Title", "Video URL", "Description"]);
     expect(info.rowCount).toBe(5);
-    expect(info.preview[0]).toEqual(["One", "https://youtu.be/aaaaaaaaaaa", ""]);
+    expect(info.headerRow).toBe(0);
+    expect(info.preview[0]).toEqual({ sheetRow: 1, cells: ["One", "https://youtu.be/aaaaaaaaaaa", ""] });
     expect(info.guess).toEqual({ video: 1, description: 2, title: 0 });
   });
 });

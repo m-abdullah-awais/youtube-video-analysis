@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local-only folders: scratch files, portable Node.js, app data.
+    "temp/**",
+    ".runtime/**",
+    "data/**",
   ]),
 ]);
 

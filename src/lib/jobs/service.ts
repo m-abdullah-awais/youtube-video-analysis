@@ -58,8 +58,9 @@ export type TableInfo = {
   sheetName: string;
   headers: string[];
   columnCount: number;
+  headerRow: number;
   rowCount: number;
-  preview: string[][];
+  preview: { sheetRow: number; cells: string[] }[];
   guess: ColumnGuess;
 };
 
@@ -104,8 +105,11 @@ export function getTableInfo(db: Db, store: FileStore, jobId: string, sheetName?
     sheetName: table.sheetName,
     headers: table.headers,
     columnCount: columnCount(table),
+    headerRow: table.headerRow,
     rowCount: table.rows.length,
-    preview: table.rows.slice(0, PREVIEW_ROWS).map((r) => r.cells.slice(0, columnCount(table))),
+    preview: table.rows
+      .slice(0, PREVIEW_ROWS)
+      .map((r) => ({ sheetRow: r.sheetRow, cells: r.cells.slice(0, columnCount(table)) })),
     guess: detectColumns(table.headers, table.rows),
   };
 }
