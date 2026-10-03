@@ -69,7 +69,7 @@ export class JobRunner {
   async run(): Promise<void> {
     const job = getJob(this.db, this.jobId);
     if (!job) return;
-    const prompt = buildPrompt(job.template);
+    const prompt = buildPrompt(job.template, job.summaryLanguage);
     const resumeQueue = recoverInterrupted(this.db, this.jobId);
 
     const worker = async () => {
@@ -127,7 +127,7 @@ export class JobRunner {
   }
 }
 
-function describeMissing(missing: string[]): string | null {
+export function describeMissing(missing: string[]): string | null {
   if (missing.length === 0) return null;
   return `Missing section${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`;
 }

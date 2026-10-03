@@ -1,4 +1,6 @@
-import { callbackUrl, db } from "@/lib/api";
+import { callbackUrl, db, requestLocale } from "@/lib/api";
+import { errorText } from "@/lib/i18n/errors";
+import { isVidiqError } from "@/lib/vidiq/errors";
 import { finishAuthorization } from "@/lib/vidiq/client";
 
 /** vidIQ sends the browser here after sign-in; we finish the exchange and show a result page. */
@@ -15,7 +17,8 @@ export async function GET(request: Request) {
   try {
     await finishAuthorization(db(), callbackUrl(request), code, url.searchParams.get("state"));
   } catch (error) {
-    result.searchParams.set("error", error instanceof Error ? error.message : "The sign-in could not be completed.");
+    const message = isVidiqError(error) && error.key ? errorText(requestLocale(request), error.key) : null;
+    result.searchParams.set("error", message ?? (error instanceof Error ? error.message : "The sign-in could not be completed."));
   }
   return Response.redirect(result, 303);
 }

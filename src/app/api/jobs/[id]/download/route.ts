@@ -1,8 +1,8 @@
 import { db, handle, store, type IdParams } from "@/lib/api";
 import { downloadResult } from "@/lib/jobs/service";
 
-export async function GET(_request: Request, { params }: IdParams) {
-  return handle(async () => {
+export async function GET(request: Request, { params }: IdParams) {
+  return handle(request, async () => {
     const { id } = await params;
     const file = downloadResult(db(), store, id);
     return new Response(Buffer.from(file.data), {

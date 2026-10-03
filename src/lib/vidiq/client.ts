@@ -92,7 +92,7 @@ class StoredOAuthProvider implements OAuthClientProvider {
 
   codeVerifier() {
     const verifier = getSetting<string>(this.db, KEYS.verifier);
-    if (!verifier) throw new VidiqError("auth", "The sign-in link expired. Start the vidIQ connection again.");
+    if (!verifier) throw new VidiqError("auth", "The sign-in link expired. Start the vidIQ connection again.", "vidiqLinkExpired");
     return verifier;
   }
 
@@ -120,7 +120,7 @@ export async function startAuthorization(db: Db, callbackUrl: string): Promise<s
   const provider = new StoredOAuthProvider(db, callbackUrl, true);
   const result = await auth(provider, { serverUrl: VIDIQ_MCP_URL, scope: "api" });
   if (result === "AUTHORIZED" || !provider.authorizationUrl) {
-    throw new VidiqError("fatal", "vidIQ did not return a sign-in link. Try again.");
+    throw new VidiqError("fatal", "vidIQ did not return a sign-in link. Try again.", "vidiqNoLink");
   }
   return provider.authorizationUrl.toString();
 }
@@ -128,7 +128,7 @@ export async function startAuthorization(db: Db, callbackUrl: string): Promise<s
 export async function finishAuthorization(db: Db, callbackUrl: string, code: string, state: string | null) {
   const expected = getSetting<string>(db, KEYS.state);
   if (!expected || state !== expected) {
-    throw new VidiqError("auth", "This sign-in link is out of date. Start the vidIQ connection again from the app.");
+    throw new VidiqError("auth", "This sign-in link is out of date. Start the vidIQ connection again from the app.", "vidiqStaleLink");
   }
   const provider = new StoredOAuthProvider(db, callbackUrl, false);
   await auth(provider, { serverUrl: VIDIQ_MCP_URL, authorizationCode: code });
@@ -162,7 +162,7 @@ async function resetClient() {
 
 function getClient(db: Db): Promise<Client> {
   if (!getSetting(db, KEYS.tokens)) {
-    return Promise.reject(new VidiqError("auth", "Connect your vidIQ account first."));
+    return Promise.reject(new VidiqError("auth", "Connect your vidIQ account first.", "connectFirst"));
   }
   shared.__vidiqClient ??= (async () => {
     const stored = getSetting<StoredClient>(db, KEYS.client);
@@ -188,9 +188,13 @@ async function callTool(db: Db, name: string, args: Record<string, unknown> = {}
     await resetClient();
     if (error instanceof UnauthorizedError || /\b401\b|unauthori[sz]ed|invalid_grant/i.test(String(error))) {
       setSetting(db, KEYS.tokens, undefined);
-      throw new VidiqError("auth", "Your vidIQ sign-in expired. Connect vidIQ again to continue.");
+      throw new VidiqError("auth", "Your vidIQ sign-in expired. Connect vidIQ again to continue.", "vidiqSessionExpired");
     }
-    throw new VidiqError("transient", `Could not reach vidIQ: ${error instanceof Error ? error.message : String(error)}`);
+    throw new VidiqError(
+      "transient",
+      `Could not reach vidIQ: ${error instanceof Error ? error.message : String(error)}`,
+      "vidiqUnreachable",
+    );
   }
   if (result.isError) {
     const message = toolErrorText(result);

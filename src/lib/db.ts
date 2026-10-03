@@ -47,11 +47,43 @@ CREATE TABLE IF NOT EXISTS job_rows (
 );
 `;
 
+const CREATE_PREVIEWS = `
+CREATE TABLE IF NOT EXISTS job_previews (
+  job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+  sheet_row INTEGER NOT NULL,
+  template TEXT NOT NULL,
+  language TEXT NOT NULL,
+  status TEXT NOT NULL,
+  vidiq_job_id TEXT,
+  summary TEXT,
+  warning TEXT,
+  error TEXT,
+  updated_at INTEGER NOT NULL
+);
+`;
+
+/** Columns added after the first release; added in place so existing data is kept. */
+const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
+  ["jobs", "name", "TEXT"],
+  ["jobs", "summary_language", "TEXT NOT NULL DEFAULT 'auto'"],
+  ["job_rows", "edited", "INTEGER NOT NULL DEFAULT 0"],
+];
+
+export function migrate(db: Db): void {
+  db.exec(SCHEMA);
+  for (const [table, column, definition] of ADDED_COLUMNS) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!columns.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec(CREATE_PREVIEWS);
+  db.exec("CREATE INDEX IF NOT EXISTS job_rows_updated ON job_rows (job_id, updated_at)");
+}
+
 export function openDb(file: string): Db {
   if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
-  db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 

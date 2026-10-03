@@ -24,7 +24,7 @@ const planned = (sheetRow: number, videoId: string | null, status: PlannedRow["s
 });
 
 function setup(rows: PlannedRow[]) {
-  configureJob(db, "j1", { videoCol: 1, descriptionCol: 2, descriptionHeader: null, template: TEMPLATE, overwrite: false }, rows, new Map());
+  configureJob(db, "j1", { videoCol: 1, descriptionCol: 2, descriptionHeader: null, template: TEMPLATE, summaryLanguage: "auto", overwrite: false }, rows, new Map());
   setJobStatus(db, "j1", "running");
 }
 

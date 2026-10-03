@@ -1,17 +1,24 @@
 import type { Db } from "../db";
 import { createGateway } from "../vidiq/client";
-import { getJob, setJobStatus } from "./repo";
+import { getJob, getPreview, setJobStatus } from "./repo";
 import { JobRunner } from "./runner";
+import { runPreview } from "./service";
 
-const RUNNER_OPTIONS = { concurrency: 2, pollMs: 5_000, maxAttempts: 3 };
+const POLL_MS = 5_000;
+const RUNNER_OPTIONS = { concurrency: 2, pollMs: POLL_MS, maxAttempts: 3 };
 
 type Entry = { runner: JobRunner; done: Promise<void> };
-const shared = globalThis as unknown as { __jobRunners?: Map<string, Entry> };
+const shared = globalThis as unknown as { __jobRunners?: Map<string, Entry>; __previewRuns?: Set<string> };
 const runners = (shared.__jobRunners ??= new Map());
+const previews = (shared.__previewRuns ??= new Set());
 
 export function isRunnerActive(jobId: string): boolean {
   const entry = runners.get(jobId);
   return !!entry && !entry.runner.isPaused;
+}
+
+export function anyRunnerActive(): boolean {
+  return [...runners.keys()].some(isRunnerActive);
 }
 
 /** Starts (or resumes) a job. Waits for a paused runner to wind down first so two never overlap. */
@@ -42,7 +49,21 @@ export function pauseRunner(db: Db, jobId: string): void {
   setJobStatus(db, jobId, "paused", "user");
 }
 
-/** After a server restart, jobs that were running are picked up again on first read. */
+/** Runs the job's trial summary in the background, once. */
+export function startPreviewRun(db: Db, jobId: string): void {
+  if (previews.has(jobId)) return;
+  previews.add(jobId);
+  void runPreview(db, jobId, createGateway(db), { pollMs: POLL_MS })
+    .catch((error) => console.error(`Trial summary for ${jobId} failed`, error))
+    .finally(() => previews.delete(jobId));
+}
+
+export function isPreviewActive(jobId: string): boolean {
+  return previews.has(jobId);
+}
+
+/** After a server restart, work that was in progress is picked up again on first read. */
 export function resumeIfInterrupted(db: Db, jobId: string): void {
   if (getJob(db, jobId)?.status === "running" && !runners.has(jobId)) void startRunner(db, jobId);
+  if (getPreview(db, jobId)?.status === "running" && !previews.has(jobId)) startPreviewRun(db, jobId);
 }

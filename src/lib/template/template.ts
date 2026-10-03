@@ -1,11 +1,25 @@
 /** vidIQ accepts prompts up to 2000 characters; the rest is our instruction. */
 export const MAX_TEMPLATE_LENGTH = 1500;
 
+export type SummaryLanguage = "auto" | "en" | "es";
+
 export const DEFAULT_TEMPLATE = [
   "Summary: 2-3 sentences on what the video covers and who it is for.",
   "Key Points: 3-5 bullet points with the main takeaways.",
   "Topics: a comma-separated list of the main topics.",
 ].join("\n");
+
+export const DEFAULT_TEMPLATE_ES = [
+  "Resumen: 2-3 frases sobre de qué trata el video y para quién es.",
+  "Puntos clave: 3-5 viñetas con las ideas principales.",
+  "Temas: una lista de los temas principales separados por comas.",
+].join("\n");
+
+const LANGUAGE_INSTRUCTION: Record<SummaryLanguage, string> = {
+  auto: "Write it in the language spoken in the video.",
+  en: "Write it in English.",
+  es: "Write it in Spanish.",
+};
 
 const INSTRUCTION = [
   "Write a summary of this video to be used as its YouTube description.",
@@ -14,13 +28,17 @@ const INSTRUCTION = [
   'Write plain text without Markdown symbols such as # or **. Use "- " for bullet points.',
 ].join(" ");
 
-export function buildPrompt(template: string): string {
+/** Why a template cannot be used, or null when it is fine. */
+export function templateProblem(template: string): "templateEmpty" | "templateTooLong" | null {
   const body = template.trim();
-  if (!body) throw new Error("Write a summary template before starting.");
-  if (body.length > MAX_TEMPLATE_LENGTH) {
-    throw new Error(`Keep the template under ${MAX_TEMPLATE_LENGTH} characters (it has ${body.length}).`);
-  }
-  return `${INSTRUCTION}\n\nTemplate:\n${body}`;
+  if (!body) return "templateEmpty";
+  return body.length > MAX_TEMPLATE_LENGTH ? "templateTooLong" : null;
+}
+
+export function buildPrompt(template: string, language: SummaryLanguage = "auto"): string {
+  const problem = templateProblem(template);
+  if (problem) throw new Error(`Cannot use this template: ${problem}`);
+  return `${INSTRUCTION} ${LANGUAGE_INSTRUCTION[language]}\n\nTemplate:\n${template.trim()}`;
 }
 
 /** Section names from "Name: ..." lines and Markdown headings. */

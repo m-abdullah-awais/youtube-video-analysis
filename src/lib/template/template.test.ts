@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_TEMPLATE_LENGTH, buildPrompt, missingSections, templateSections, toPlainText } from "./template";
+import { MAX_TEMPLATE_LENGTH, buildPrompt, missingSections, templateProblem, templateSections, toPlainText } from "./template";
 
 const TEMPLATE = "Summary: 2-3 sentences.\nKey Points: 3-5 bullets.\nTopics: comma-separated list.";
 
@@ -11,12 +11,22 @@ describe("buildPrompt", () => {
   });
 
   it("stays within vidIQ's 2000 character prompt limit for the longest allowed template", () => {
-    expect(buildPrompt("x".repeat(MAX_TEMPLATE_LENGTH)).length).toBeLessThanOrEqual(2000);
+    for (const language of ["auto", "en", "es"] as const) {
+      expect(buildPrompt("x".repeat(MAX_TEMPLATE_LENGTH), language).length).toBeLessThanOrEqual(2000);
+    }
+  });
+
+  it("asks for the chosen summary language", () => {
+    expect(buildPrompt(TEMPLATE, "es")).toMatch(/Write it in Spanish/);
+    expect(buildPrompt(TEMPLATE, "en")).toMatch(/Write it in English/);
+    expect(buildPrompt(TEMPLATE)).toMatch(/language spoken in the video/);
   });
 
   it("rejects templates that are empty or too long", () => {
+    expect(templateProblem("   ")).toBe("templateEmpty");
+    expect(templateProblem("x".repeat(MAX_TEMPLATE_LENGTH + 1))).toBe("templateTooLong");
+    expect(templateProblem(TEMPLATE)).toBeNull();
     expect(() => buildPrompt("   ")).toThrow(/template/i);
-    expect(() => buildPrompt("x".repeat(MAX_TEMPLATE_LENGTH + 1))).toThrow(/characters/i);
   });
 });
 
