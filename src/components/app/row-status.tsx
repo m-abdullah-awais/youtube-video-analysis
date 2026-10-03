@@ -1,21 +1,26 @@
-import { AlertTriangle, Check, CircleDashed, CopyIcon, Loader2, MinusCircle, XCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
-import type { JobRow } from "@/lib/jobs/repo";
+"use client";
 
-type Look = { label: string; className: string; Icon: typeof Check; spin?: boolean };
+import { AlertTriangle, Check, CircleDashed, CopyIcon, Loader2, MinusCircle, XCircle } from "lucide-react";
+import { useI18n } from "@/lib/i18n/provider";
+import type { JobRow } from "@/lib/jobs/repo";
+import { cn } from "@/lib/utils";
+
+type Look = { className: string; Icon: typeof Check; spin?: boolean };
 
 const LOOKS: Record<JobRow["status"], Look> = {
-  pending: { label: "Waiting", className: "bg-muted text-muted-foreground", Icon: CircleDashed },
-  running: { label: "Summarizing", className: "bg-info-soft text-info", Icon: Loader2, spin: true },
-  done: { label: "Done", className: "bg-success-soft text-success", Icon: Check },
-  failed: { label: "Failed", className: "bg-danger-soft text-destructive", Icon: XCircle },
-  filled: { label: "Kept existing", className: "bg-secondary text-muted-foreground", Icon: MinusCircle },
-  invalid: { label: "Not a video link", className: "bg-warning-soft text-warning", Icon: AlertTriangle },
-  duplicate: { label: "Repeat", className: "bg-secondary text-muted-foreground", Icon: CopyIcon },
+  pending: { className: "bg-muted text-muted-foreground", Icon: CircleDashed },
+  running: { className: "bg-info-soft text-info", Icon: Loader2, spin: true },
+  done: { className: "bg-success-soft text-success", Icon: Check },
+  failed: { className: "bg-danger-soft text-destructive", Icon: XCircle },
+  filled: { className: "bg-secondary text-muted-foreground", Icon: MinusCircle },
+  invalid: { className: "bg-warning-soft text-warning", Icon: AlertTriangle },
+  duplicate: { className: "bg-secondary text-muted-foreground", Icon: CopyIcon },
 };
 
 export function RowStatus({ status, paused }: { status: JobRow["status"]; paused?: boolean }) {
-  const look = status === "running" && paused ? { ...LOOKS.running, label: "Sent, paused", spin: false } : LOOKS[status];
+  const { t } = useI18n();
+  const sentPaused = status === "running" && paused;
+  const look = LOOKS[status];
   const { Icon } = look;
   return (
     <span
@@ -24,8 +29,8 @@ export function RowStatus({ status, paused }: { status: JobRow["status"]; paused
         look.className,
       )}
     >
-      <Icon aria-hidden className={cn("size-3.5", look.spin && "animate-spin")} />
-      {look.label}
+      <Icon aria-hidden className={cn("size-3.5", look.spin && !sentPaused && "animate-spin")} />
+      {sentPaused ? t.status.sentPaused : t.status[status]}
     </span>
   );
 }

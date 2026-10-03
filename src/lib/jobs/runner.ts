@@ -1,5 +1,6 @@
 import type { Db } from "../db";
-import { buildPrompt, missingSections, toPlainText } from "../template/template";
+import { buildPrompt, cleanSummary, missingSections } from "../template/template";
+import { describeFailure, TEMPORARY_REASONS } from "../vidiq/describe";
 import { VidiqError } from "../vidiq/errors";
 import {
   claimNextPending,
@@ -101,8 +102,12 @@ export class JobRunner {
         const result = await this.gateway.poll(vidiqJobId);
         if (result.state === "running") continue;
         if (result.state === "done") {
-          const summary = toPlainText(result.text);
+          const summary = cleanSummary(result.text, template);
           completeRow(this.db, this.jobId, row.sheetRow, summary, describeMissing(missingSections(template, summary)));
+        } else if (TEMPORARY_REASONS.includes(describeFailure(result.message).reason) && row.attempts < this.options.maxAttempts) {
+          // vidIQ refunds these; send the video again after a short wait.
+          await this.sleep(Math.min(30_000, 2_000 * 2 ** row.attempts));
+          markRow(this.db, this.jobId, row.sheetRow, { status: "pending", vidiqJobId: null, error: result.message });
         } else {
           markRow(this.db, this.jobId, row.sheetRow, { status: "failed", error: result.message });
         }

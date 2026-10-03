@@ -4,7 +4,7 @@ import path from "node:path";
 import { DATA_DIR, type Db } from "../db";
 import { detectColumns, planRows, type ColumnGuess } from "../sheet/detect";
 import { readTable, writeColumn, type Table } from "../sheet/workbook";
-import { buildPrompt, DEFAULT_TEMPLATE, missingSections, templateProblem, toPlainText } from "../template/template";
+import { buildPrompt, cleanSummary, DEFAULT_TEMPLATE, missingSections, templateProblem } from "../template/template";
 import { UserError } from "../user-error";
 import { CREDIT_COST } from "../vidiq/costs";
 import {
@@ -293,7 +293,7 @@ export async function runPreview(
       const result = await gateway.poll(vidiqJobId);
       if (result.state === "running") continue;
       if (result.state === "done") {
-        const summary = toPlainText(result.text);
+        const summary = cleanSummary(result.text, preview.template);
         save({ status: "done", summary, warning: describeMissing(missingSections(preview.template, summary)) });
       } else {
         save({ status: "failed", error: result.message });

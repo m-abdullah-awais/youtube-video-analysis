@@ -61,6 +61,19 @@ export function missingSections(template: string, output: string): string[] {
   return templateSections(template).filter((name) => !starts.some((s) => s.startsWith(name.toLowerCase())));
 }
 
+/**
+ * Final text for the Description cell: plain text, starting at the first template
+ * section (vidIQ sometimes adds a lead-in such as "Here is the summary of the video.").
+ */
+export function cleanSummary(text: string, template: string): string {
+  const plain = toPlainText(text);
+  const names = templateSections(template).map((n) => n.toLowerCase());
+  if (names.length === 0) return plain;
+  const lines = plain.split("\n");
+  const first = lines.findIndex((line) => names.some((n) => line.toLowerCase().startsWith(n)));
+  return first > 0 ? lines.slice(first).join("\n").trim() : plain;
+}
+
 /** Strips Markdown so the text reads cleanly in a plain-text YouTube description. */
 export function toPlainText(markdown: string): string {
   const lines = markdown

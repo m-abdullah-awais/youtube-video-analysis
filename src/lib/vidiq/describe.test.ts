@@ -13,6 +13,7 @@ describe("describeFailure", () => {
     ["Could not reach vidIQ: fetch failed", "network"],
     ["vidIQ returned an empty summary.", "empty"],
     ["Insufficient credits", "credits"],
+    ["Video analysis is temporarily unavailable. Please try again. Your credits were refunded.", "busy"],
     ["Something odd happened", "unknown"],
   ])("explains %j as %s", (message, reason) => {
     expect(describeFailure(message).reason).toBe(reason);

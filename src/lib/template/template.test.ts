@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_TEMPLATE_LENGTH, buildPrompt, missingSections, templateProblem, templateSections, toPlainText } from "./template";
+import { MAX_TEMPLATE_LENGTH, buildPrompt, cleanSummary, missingSections, templateProblem, templateSections, toPlainText } from "./template";
 
 const TEMPLATE = "Summary: 2-3 sentences.\nKey Points: 3-5 bullets.\nTopics: comma-separated list.";
 
@@ -51,6 +51,22 @@ describe("missingSections", () => {
 
   it("matches headings case-insensitively and ignores Markdown markers", () => {
     expect(missingSections(TEMPLATE, "### summary\nx\n**KEY POINTS:**\n- y\n## Topics\nz")).toEqual([]);
+  });
+});
+
+describe("cleanSummary", () => {
+  it("drops a lead-in sentence before the first template section", () => {
+    expect(cleanSummary("Here is the summary of the video.\n\n**Summary:**\nGood.\n\nTopics: a", TEMPLATE)).toBe(
+      "Summary:\nGood.\n\nTopics: a",
+    );
+  });
+
+  it("keeps everything when no section is found", () => {
+    expect(cleanSummary("Just a paragraph.", TEMPLATE)).toBe("Just a paragraph.");
+  });
+
+  it("keeps text untouched when the template has no sections", () => {
+    expect(cleanSummary("Intro.\nMore.", "Write one paragraph.")).toBe("Intro.\nMore.");
   });
 });
 

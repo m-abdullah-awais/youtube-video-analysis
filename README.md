@@ -1,108 +1,92 @@
 # Video Summaries
 
-A local web app that fills the Description column of a YouTube video spreadsheet with AI summaries from the vidIQ MCP. You write one summary template, and every video gets a summary in exactly that structure, placed in the correct row of your file.
+**Write the descriptions for a whole spreadsheet of YouTube videos in one go.**
 
-No more pasting video links into vidIQ one at a time: upload the sheet, check the columns, start the run, and download the finished spreadsheet.
+You give the app your list of videos and tell it how each summary should look. vidIQ watches every video and writes a summary in exactly that format, and the app puts each summary in the right row of your spreadsheet. When it is done, you download the finished file.
 
-## Features
+No more copying video links into vidIQ one at a time.
 
-- **CSV and Excel support.** Reads `.csv`, `.xlsx` and `.xls`. CSV files keep their delimiter, quoting, line endings and BOM byte for byte. Excel files keep other sheets, columns, numbers, formulas and links.
-- **Automatic column detection.** Finds the video link column (URLs, Shorts links, `youtu.be` links, bare IDs and hyperlinked cells) and the Description column. You can change either from a dropdown with a live spreadsheet preview.
-- **Custom summary template.** Presets or your own structure, for example `Summary`, `Key Points` and `Topics`. Each summary is checked for the sections you asked for, and anything missing is flagged.
-- **Plain text output.** vidIQ answers in Markdown; the app turns it into clean text that reads well in a YouTube description.
-- **Credit-aware.** Shows your vidIQ balance and the estimated cost before you start (25 credits per long video, 10 per Short). It pauses cleanly if credits run out.
-- **Reliable batches.** Two videos are processed at a time. Each row has its own status, and a failed video never stops the batch. Network errors are retried automatically, and you can retry all failed rows or a single row.
-- **No duplicate work.** Rows that already have a description are skipped unless you choose to replace them. A video that appears twice is summarized once.
-- **Survives restarts.** Progress is saved after every video. If the app stops mid-run, it picks up where it left off without paying again for videos already sent to vidIQ.
-- **Your original file is never changed.** The app keeps a copy and writes summaries into a new download.
+Available in English and Spanish.
 
-## Quick start (Windows)
+---
 
-Double-click **`Start.bat`**. It will:
+## What you need
 
-1. Use the Node.js on your computer if it is version 22.13 or later. Otherwise it downloads a private copy of Node.js into this folder (`.runtime/`) and checks its integrity. Nothing is installed globally, and no admin rights are needed.
-2. Install the app's dependencies into this folder (first run only).
-3. Build an optimized version of the app (first run, and after code changes).
-4. Start the app at http://localhost:4817 and open it in your browser.
+- **A Windows computer.** Nothing needs to be installed beforehand.
+- **A vidIQ account with credits.** Each long video costs 25 vidIQ credits and each YouTube Short costs 10. The app always shows the cost before you start.
+- **Your list of videos** as a CSV or Excel file (`.csv`, `.xlsx` or `.xls`), with one video per row and a column of YouTube links. Not sure about the format? The app has a sample file you can download and fill in.
 
-Every step is labeled in the window, including what is being downloaded or installed. Keep the window open while you use the app; close it to stop the app.
+## Getting started
 
-## Using the app
+1. **Get the app.** On the [GitHub page](https://github.com/m-abdullah-awais/youtube-video-analysis), click the green **Code** button, choose **Download ZIP**, and unzip the folder anywhere on your computer.
+2. **Double-click `Start.bat`** inside the folder.
+3. A window opens and shows each step as it happens: checking, downloading, installing, building and starting. **The first time takes a few minutes.** After that it starts in seconds.
+4. Your browser opens the app at **http://localhost:4817**.
 
-1. **Connect.** Select **Get sign-in link**, then **Copy link** or **Open in browser**. Open the link in the browser where you are signed in to the vidIQ account you want to use, and approve access. The app updates on its own. Use **Switch account** to change accounts later.
-2. **Upload.** Drop a CSV or Excel file with one video per row (up to 20 MB and 5,000 rows).
-3. **Configure.** Check the video and Description columns, pick or write a template, and review the estimated credit cost.
-4. **Run.** Watch each row fill in. Pause, resume or retry failed rows at any time, and use **Download spreadsheet** to get the finished file.
+Keep the black window open while you use the app. To stop the app, close that window.
 
-## How it works
+> Everything the app needs stays inside its own folder. It does not install anything on your computer, and it does not need administrator rights. If Node.js is missing or too old, the app downloads a private copy into its own folder.
 
-```
-Browser UI (Next.js, React)
-   |
-   |  REST API routes (src/app/api)
-   v
-Job service + runner (src/lib/jobs)  <-->  SQLite (data/app.db)
-   |                                         original uploads (data/jobs)
-   |  MCP client with OAuth (src/lib/vidiq)
-   v
-vidIQ MCP (https://mcp.vidiq.com/mcp)
-   vidiq_video_watch / vidiq_watch_shortform_content  -> async job
-   vidiq_job_poll                                     -> summary text
-   vidiq_balance                                      -> credits
-```
+## How to use it
 
-- Sign-in uses OAuth 2.0 with PKCE and dynamic client registration. Tokens are stored in the local SQLite database and refreshed automatically.
-- The runner submits each video to vidIQ with your template as the prompt, polls the job until it finishes, converts the result to plain text and saves it immediately.
-- The download re-reads your original file and writes only the Description cells.
+The app guides you through four steps.
 
-## Project structure
+### 1. Connect vidIQ
 
-```
-src/
-  app/                  pages and API routes
-  components/app/       the four steps, the run ledger and shared pieces
-  components/ui/        shadcn/ui components
-  lib/sheet/            CSV and Excel reading, writing and column detection
-  lib/youtube/          video link and ID parsing
-  lib/template/         prompt building, section checks, Markdown to text
-  lib/vidiq/            vidIQ MCP client, OAuth storage, response parsing
-  lib/jobs/             job storage, the runner and the job service
-scripts/start.mjs       production launcher used by Start.bat
-data/                   local database and uploads (created on first run, not committed)
-```
+Click **Get sign-in link**. You can copy the link or open it straight away. Open it in the browser where you are signed in to the vidIQ account you want to use, then approve access. The app notices on its own and shows your credit balance.
 
-## Development
+You only do this once. To use another account later, choose **Switch account**.
 
-Requirements: Node.js 22.13 or later (Node.js 24 recommended).
+### 2. Upload your spreadsheet
 
-```bash
-npm install
-npm run dev
-```
+Drag your file onto the page, or click to choose it. Your original file is never changed; the app works on a copy.
 
-| Command | Purpose |
+Earlier uploads are listed under **Your runs**, where you can open, rename or delete them.
+
+### 3. Choose columns and template
+
+- **Columns.** The app finds the column with the video links and the column for descriptions by itself. A preview of your sheet shows what it picked, and you can change it.
+- **Template.** Pick a ready-made template or write your own. Start each section with its name and a colon, for example:
+
+  ```
+  Summary: 2-3 sentences on what the video covers.
+  Key Points: 3-5 bullet points with the main takeaways.
+  Topics: a comma-separated list of the main topics.
+  ```
+
+- **Language.** Choose whether summaries are written in the video's own language, in English or in Spanish.
+- **Try it on one video first.** See a real summary before you spend credits on the whole sheet. If you keep the same settings, that summary is reused when you start, so you never pay for that video twice.
+- **Before you start.** The app shows how many videos will be summarized, the estimated cost, and your balance.
+
+### 4. Run and download
+
+Click **Start summaries** and watch each row fill in. You can:
+
+- **Pause and resume** at any time. Nothing is lost.
+- **Read, edit or regenerate** any summary.
+- **Retry** videos that failed. Each failure explains what went wrong and what to do.
+- **Download** the spreadsheet at any time, even halfway through.
+
+You can leave the tab. The tab title shows the progress, and your browser can notify you when the run finishes.
+
+## Good to know
+
+- **Existing descriptions are kept.** Rows that already have a description are skipped, unless you turn on **Replace descriptions that already have text**.
+- **Repeated videos are summarized once.** If the same video appears in several rows, every row gets the same summary and you pay once.
+- **Running out of credits is safe.** The run pauses, and you can continue after adding credits in vidIQ.
+- **Closing the window is safe.** Start the app again and the run continues where it stopped, without paying again for videos already sent to vidIQ.
+- **Ready to paste.** Summaries are written as plain text, ready for a YouTube description.
+- **Your data stays on your computer.** Only the video links and your template are sent to vidIQ. The app only accepts connections from this computer.
+
+## If something goes wrong
+
+| What you see | What to do |
 | --- | --- |
-| `npm run dev` | Development server with hot reload |
-| `npm run build` | Production build |
-| `npm run start` | Serve the production build |
-| `npm run app` | Same as `Start.bat`: install if needed, build if changed, start, open the browser |
-| `npm run lint` | Lint the code |
-| `npm run test` | Run the test suite (Vitest) |
-
-## Tech stack
-
-- Next.js 16 (App Router) and React 19 with TypeScript
-- Tailwind CSS 4 and shadcn/ui (Base UI)
-- SheetJS for Excel files, a built-in CSV reader and writer for exact CSV round trips
-- Model Context Protocol TypeScript SDK for the vidIQ MCP connection
-- Node.js built-in SQLite for local storage
-- Vitest for tests
-
-## Privacy and security
-
-- The app runs only on your computer and listens on `localhost` only.
-- Your spreadsheets, summaries and vidIQ sign-in stay in the local `data/` folder.
-- Video links and your template are sent to vidIQ to generate summaries. Nothing else leaves your computer.
+| The black window shows an error and closes when you press a key | Read the last lines before closing it. Most often the internet connection dropped during the first setup; run `Start.bat` again. |
+| The browser did not open | Open **http://localhost:4817** yourself while the black window is open. |
+| "vidIQ needs you to sign in again" | Go to **Connect**, get a new sign-in link and approve access again. |
+| "Out of vidIQ credits" | Add credits in vidIQ, then click **Resume**. |
+| A video failed | Read the reason shown in its row. You can **Retry** it, or **Write it yourself**. |
 
 ## Developer
 
@@ -115,3 +99,56 @@ Full Stack Developer
 - GitHub: [m-abdullah-awais](https://github.com/m-abdullah-awais)
 - YouTube: [@m_abdullah_awais](https://www.youtube.com/@m_abdullah_awais)
 - Instagram: [m_abdullah_awais](https://www.instagram.com/m_abdullah_awais)
+
+---
+
+## Technical details
+
+This section is for developers working on the app.
+
+### How it works
+
+```
+Browser (Next.js, React)  ->  API routes (src/app/api)  ->  job service and runner (src/lib/jobs)
+                                                               |            |
+                                                     SQLite (data/app.db)   vidIQ MCP (mcp.vidiq.com)
+```
+
+- **vidIQ connection:** OAuth 2.0 with PKCE and dynamic client registration through the Model Context Protocol SDK. Tokens are stored in the local SQLite database and refreshed automatically.
+- **Summaries:** each video goes to `vidiq_video_watch` (or `vidiq_watch_shortform_content` for Shorts) with the template as the prompt. The job is then polled with `vidiq_job_poll`, and the result is converted to plain text and saved right away.
+- **Reliability:** two videos are processed at a time. Network errors and temporary vidIQ outages are retried automatically, a pause takes effect immediately, and interrupted runs resume without sending videos again.
+- **Spreadsheets:** CSV files are written back byte for byte, keeping delimiter, quoting, line endings and BOM. Excel files keep their other sheets, numbers, formulas and links. Only the description cells change.
+- **Security:** the server listens on `localhost` only and refuses API requests that come from other websites or other host names.
+
+### Project structure
+
+```
+src/app/              pages and API routes
+src/components/app/   the four steps, the run table and shared pieces
+src/components/ui/    shadcn/ui components
+src/lib/sheet/        CSV and Excel reading, writing and column detection
+src/lib/template/     prompt building, section checks, plain-text cleanup
+src/lib/vidiq/        vidIQ MCP client, sign-in storage, response parsing
+src/lib/jobs/         job storage, the runner and the job service
+src/lib/i18n/         English and Spanish text
+scripts/start.mjs     launcher used by Start.bat
+data/                 local database and uploads (created on first run, not committed)
+```
+
+### Commands
+
+Requires Node.js 22.13 or later (Node.js 24 recommended).
+
+| Command | Purpose |
+| --- | --- |
+| `npm install` | Install dependencies into this folder |
+| `npm run dev` | Development server at http://localhost:4817 |
+| `npm run build` | Production build |
+| `npm run start` | Serve the production build |
+| `npm run app` | Same as `Start.bat`: install if needed, build if changed, start, open the browser |
+| `npm run lint` | Lint the code |
+| `npm run test` | Run the test suite |
+
+### Tech stack
+
+Next.js 16 and React 19 with TypeScript, Tailwind CSS 4 and shadcn/ui, SheetJS, the Model Context Protocol TypeScript SDK, the SQLite module built into Node.js, and Vitest.

@@ -103,6 +103,22 @@ describe("JobRunner", () => {
     expect(byRow()[1].status).toBe("done");
   });
 
+  it("retries temporary vidIQ outages automatically, submitting the video again", async () => {
+    setup([planned(1, "aaaaaaaaaaa", "pending")]);
+    const gateway = new FakeGateway({
+      aaaaaaaaaaa: [{ state: "failed", message: "Video analysis is temporarily unavailable. Please try again." }],
+    });
+    await run(gateway);
+    expect(gateway.submits).toHaveLength(2);
+    expect(byRow()[1]).toMatchObject({ status: "done", attempts: 2 });
+  });
+
+  it("strips a lead-in before the first section of the summary", async () => {
+    setup([planned(1, "aaaaaaaaaaa", "pending")]);
+    await run(new FakeGateway({ aaaaaaaaaaa: [{ state: "done", text: "Here is the summary.\n\nSummary:\nGood.\n\nTopics:\nx" }] }));
+    expect(byRow()[1].summary).toBe("Summary:\nGood.\n\nTopics:\nx");
+  });
+
   it("retries transient errors before giving up", async () => {
     setup([planned(1, "aaaaaaaaaaa", "pending"), planned(2, "bbbbbbbbbbb", "pending")]);
     const flaky = () => new VidiqError("transient", "Network timeout");

@@ -9,7 +9,6 @@ export const store = diskStore();
 export const db = () => getDb();
 
 export type IdParams = { params: Promise<{ id: string }> };
-export type RowParams = { params: Promise<{ id: string; row: string }> };
 
 export function requestLocale(request: Request): Locale {
   return localeFromCookieHeader(request.headers.get("cookie"));

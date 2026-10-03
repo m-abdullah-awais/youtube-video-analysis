@@ -49,29 +49,41 @@ export function useVidiqStatus() {
   return { status, error, refresh, setStatus };
 }
 
+/** Applies a partial response (only changed rows) on top of the rows we already have. */
+function merge(current: JobSummary | null, next: JobSummary): JobSummary {
+  if (!next.partial || !current) return next;
+  if (next.rows.length === 0) return { ...next, rows: current.rows, partial: false };
+  const changed = new Map(next.rows.map((r) => [r.sheetRow, r]));
+  return { ...next, rows: current.rows.map((r) => changed.get(r.sheetRow) ?? r), partial: false };
+}
+
 type JobState = { jobId: string | null; summary: JobSummary | null; error: string | null };
 
 export function useJob(jobId: string | null) {
   const [state, setState] = useState<JobState>({ jobId: null, summary: null, error: null });
+  const latest = useRef(state);
+  useEffect(() => {
+    latest.current = state;
+  });
 
-  const load = useCallback(
-    (id: string) =>
-      api.job(id).then(
-        (summary) => setState({ jobId: id, summary, error: null }),
-        (e) =>
-          setState((s) => ({ jobId: id, summary: s.jobId === id ? s.summary : null, error: errorMessage(e) })),
-      ),
-    [],
-  );
+  const load = useCallback((id: string, incremental: boolean) => {
+    const known = latest.current.jobId === id ? latest.current.summary : null;
+    const since = incremental && known ? known.serverTime : undefined;
+    return api.job(id, since).then(
+      (next) =>
+        setState((s) => ({ jobId: id, summary: merge(s.jobId === id ? s.summary : null, next), error: null })),
+      (e) => setState((s) => ({ jobId: id, summary: s.jobId === id ? s.summary : null, error: errorMessage(e) })),
+    );
+  }, []);
 
   useEffect(() => {
-    if (jobId) void load(jobId);
+    if (jobId) void load(jobId, false);
   }, [jobId, load]);
 
   // State from a previously opened run is ignored rather than reset.
   const current = state.jobId === jobId ? state : { summary: null, error: null };
-  const running = current.summary?.job.status === "running";
-  usePolling(() => jobId && void load(jobId), running ? 1_500 : null);
+  const busy = current.summary?.job.status === "running" || current.summary?.preview?.status === "running";
+  usePolling(() => jobId && void load(jobId, true), busy ? 1_500 : null);
 
   const setSummary = useCallback((summary: JobSummary) => setState({ jobId: summary.job.id, summary, error: null }), []);
 

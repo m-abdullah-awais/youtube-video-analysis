@@ -1,4 +1,7 @@
+"use client";
+
 import { Check, Lock } from "lucide-react";
+import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 
 export type StepId = "connect" | "upload" | "configure" | "run";
@@ -15,8 +18,9 @@ export function StepRail({
   active: StepId;
   onSelect: (id: StepId) => void;
 }) {
+  const { t } = useI18n();
   return (
-    <nav aria-label="Steps">
+    <nav aria-label={t.steps.nav}>
       <ol className="grid grid-cols-4 gap-1 lg:grid-cols-1 lg:gap-0.5">
         {steps.map((step, i) => {
           const current = step.id === active;
@@ -51,7 +55,7 @@ export function StepRail({
                   <span className="hidden truncate text-xs text-muted-foreground lg:block">{step.hint}</span>
                 </span>
                 <span className="sr-only">
-                  {step.done ? ", done" : step.locked ? ", not available yet" : current ? ", current step" : ""}
+                  {step.done ? t.steps.srDone : step.locked ? t.steps.srLocked : current ? t.steps.srCurrent : ""}
                 </span>
               </button>
             </li>

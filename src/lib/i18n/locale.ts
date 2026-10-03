@@ -5,7 +5,7 @@ export const LOCALE_COOKIE = "lang";
 
 export const LOCALE_NAMES: Record<Locale, string> = { en: "English", es: "Español" };
 /** BCP 47 tags used for number and date formatting. */
-export const INTL_LOCALE: Record<Locale, string> = { en: "en-US", es: "es-ES" };
+export const INTL_LOCALE: Record<Locale, string> = { en: "en-US", es: "es-419" };
 
 export function toLocale(value: string | null | undefined): Locale {
   return (LOCALES as readonly string[]).includes(value ?? "") ? (value as Locale) : DEFAULT_LOCALE;

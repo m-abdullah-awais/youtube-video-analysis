@@ -37,5 +37,12 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/m-abdullah-awais/youtube-video-analysis.git"
+  },
+  "homepage": "https://github.com/m-abdullah-awais/youtube-video-analysis#readme",
+  "author": "Muhammad Abdullah Awais <contact@abdullahawais.com> (https://www.abdullahawais.com)",
+  "description": "Fill a YouTube spreadsheet's Description column with vidIQ summaries that follow your template."
 }

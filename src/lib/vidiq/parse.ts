@@ -43,7 +43,8 @@ export function parsePollResult(payload: PollPayload): PollResult {
       const base =
         payload.message?.replace(/\.?\s*$/, ".") ??
         (payload.status === "expired" ? "vidIQ did not finish this video in time." : "vidIQ could not summarize this video.");
-      return { state: "failed", message: payload.refunded ? `${base} Credits were refunded.` : base };
+      const noteRefund = payload.refunded && !/refund/i.test(base);
+      return { state: "failed", message: noteRefund ? `${base} Credits were refunded.` : base };
     }
   }
 }

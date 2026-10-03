@@ -1,12 +1,10 @@
-import type { Job } from "@/lib/jobs/repo";
-import type { ConfigureInput, JobSummary, TableInfo } from "@/lib/jobs/service";
+import type { ConfigureInput, JobSummary, RunListItem, TableInfo } from "@/lib/jobs/service";
 import type { ConnectionState } from "@/lib/vidiq/client";
 import type { Balance } from "@/lib/vidiq/parse";
 
-export type { JobSummary, TableInfo };
+export type { JobSummary, RunListItem, TableInfo };
 
 export type VidiqStatus = { connection: ConnectionState; balance: Balance | null; balanceError?: string };
-export type JobListItem = Job & { counts: JobSummary["counts"] };
 
 export class ApiError extends Error {
   constructor(
@@ -18,15 +16,25 @@ export class ApiError extends Error {
   }
 }
 
+const isSpanish = () => typeof document !== "undefined" && document.documentElement.lang === "es";
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(url, { cache: "no-store", ...init });
   } catch {
-    throw new ApiError("The app server is not responding. Check that it is still running.", 0);
+    throw new ApiError(
+      isSpanish()
+        ? "El servidor de la aplicación no responde. Comprueba que siga abierto."
+        : "The app server is not responding. Check that it is still running.",
+      0,
+    );
   }
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(body.error ?? "Something went wrong. Try again.", response.status, body.kind);
+  if (!response.ok) {
+    const fallback = isSpanish() ? "Algo salió mal. Inténtalo de nuevo." : "Something went wrong. Try again.";
+    throw new ApiError(body.error ?? fallback, response.status, body.kind);
+  }
   return body as T;
 }
 
@@ -42,22 +50,29 @@ export const api = {
   cancelConnect: () => request<{ ok: true }>("/api/vidiq/cancel", { method: "POST" }),
   disconnect: () => request<{ ok: true }>("/api/vidiq/disconnect", { method: "POST" }),
 
-  listJobs: () => request<{ jobs: JobListItem[] }>("/api/jobs"),
+  listRuns: () => request<{ jobs: RunListItem[] }>("/api/jobs"),
+  clearRuns: () => request<{ deleted: number }>("/api/jobs", { method: "DELETE" }),
   upload: (file: File) => {
     const form = new FormData();
     form.append("file", file);
     return request<{ jobId: string }>("/api/jobs", { method: "POST", body: form });
   },
-  job: (id: string) => request<JobSummary>(`/api/jobs/${id}`),
+  job: (id: string, since?: number) => request<JobSummary>(`/api/jobs/${id}${since ? `?since=${since}` : ""}`),
+  rename: (id: string, name: string) => request<JobSummary>(`/api/jobs/${id}`, json("PATCH", { name })),
+  remove: (id: string) => request<{ ok: true }>(`/api/jobs/${id}`, { method: "DELETE" }),
   table: (id: string, sheet?: string) =>
     request<TableInfo>(`/api/jobs/${id}/table${sheet ? `?sheet=${encodeURIComponent(sheet)}` : ""}`),
   configure: (id: string, input: ConfigureInput) => request<JobSummary>(`/api/jobs/${id}/config`, json("PUT", input)),
+  preview: (id: string) => request<JobSummary>(`/api/jobs/${id}/preview`, json("POST")),
   start: (id: string) => request<JobSummary>(`/api/jobs/${id}/start`, json("POST")),
   pause: (id: string) => request<JobSummary>(`/api/jobs/${id}/pause`, json("POST")),
   retry: (id: string, sheetRow?: number) => request<JobSummary>(`/api/jobs/${id}/retry`, json("POST", { sheetRow })),
+  editRow: (id: string, sheetRow: number, summary: string) =>
+    request<JobSummary>(`/api/jobs/${id}/edit`, json("PUT", { sheetRow, summary })),
+  regenerateRow: (id: string, sheetRow: number) => request<JobSummary>(`/api/jobs/${id}/regenerate`, json("POST", { sheetRow })),
   downloadUrl: (id: string) => `/api/jobs/${id}/download`,
 };
 
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Something went wrong. Try again.";
+  return error instanceof Error ? error.message : String(error);
 }

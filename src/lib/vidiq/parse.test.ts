@@ -45,6 +45,12 @@ describe("parsePollResult", () => {
     });
   });
 
+  it("does not repeat a refund note vidIQ already gave", () => {
+    expect(
+      parsePollResult({ status: "failed", result: null, message: "Analysis is temporarily unavailable. Your credits were refunded.", refunded: true }),
+    ).toEqual({ state: "failed", message: "Analysis is temporarily unavailable. Your credits were refunded." });
+  });
+
   it("treats a completed job without text as failed", () => {
     expect(parsePollResult({ status: "completed", result: {} })).toEqual({
       state: "failed",

@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api, errorMessage, type VidiqStatus } from "@/lib/client/api";
-import { formatDate, formatNumber, plural } from "@/lib/client/format";
+import { useI18n } from "@/lib/i18n/provider";
 import { CREDIT_COST } from "@/lib/vidiq/costs";
 import { PanelHeader } from "./panel-header";
 
@@ -26,6 +26,8 @@ type Props = {
 };
 
 export function ConnectPanel({ status, onChange, onContinue }: Props) {
+  const { t } = useI18n();
+  const c = t.connect;
   const [busy, setBusy] = useState<"link" | "cancel" | "disconnect" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"switch" | "disconnect" | null>(null);
@@ -61,7 +63,7 @@ export function ConnectPanel({ status, onChange, onContinue }: Props) {
     try {
       await api.disconnect();
       onChange({ connection: { status: "disconnected" }, balance: null });
-      toast.success("Disconnected from vidIQ");
+      toast.success(c.disconnected);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -74,51 +76,39 @@ export function ConnectPanel({ status, onChange, onContinue }: Props) {
 
   return (
     <section aria-labelledby="connect-title" className="space-y-6">
-      <PanelHeader
-        id="connect-title"
-        title="Connect your vidIQ account"
-        description="vidIQ watches each video and writes its summary, using the credits on your vidIQ account. You sign in once and the app remembers the connection."
-      />
+      <PanelHeader id="connect-title" title={c.title} description={c.description} />
 
       {error && (
         <Alert variant="destructive">
-          <AlertTitle>Could not reach vidIQ</AlertTitle>
+          <AlertTitle>{c.couldNotReach}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
-      {!connection && <div className="h-40 animate-pulse rounded-lg bg-muted" aria-label="Checking the vidIQ connection" />}
+      {!connection && <div className="h-40 animate-pulse rounded-lg bg-muted" aria-label={c.checking} />}
 
       {connection?.status === "disconnected" && (
         <div className="rounded-lg border bg-card p-6">
-          <p className="max-w-prose text-sm text-muted-foreground">
-            You will get a sign-in link. Open it in the browser where you are signed in to the vidIQ account you want
-            to use, and approve access.
-          </p>
+          <p className="max-w-prose text-sm text-muted-foreground">{c.intro}</p>
           <dl className="mt-5 grid max-w-md grid-cols-2 gap-px overflow-hidden rounded-md border bg-border text-sm">
             <div className="bg-card px-4 py-3">
-              <dt className="text-muted-foreground">Long video</dt>
-              <dd className="font-semibold">{CREDIT_COST.long} credits each</dd>
+              <dt className="text-muted-foreground">{c.longVideo}</dt>
+              <dd className="font-semibold">{c.creditsEach(CREDIT_COST.long)}</dd>
             </div>
             <div className="bg-card px-4 py-3">
-              <dt className="text-muted-foreground">YouTube Short</dt>
-              <dd className="font-semibold">{CREDIT_COST.short} credits each</dd>
+              <dt className="text-muted-foreground">{c.short}</dt>
+              <dd className="font-semibold">{c.creditsEach(CREDIT_COST.short)}</dd>
             </div>
           </dl>
           <Button className="mt-5" size="lg" onClick={getLink} disabled={busy === "link"}>
             {busy === "link" ? <RefreshCw className="animate-spin" aria-hidden /> : null}
-            Get sign-in link
+            {c.getLink}
           </Button>
         </div>
       )}
 
       {connection?.status === "pending" && (
-        <PendingLink
-          url={connection.authorizationUrl}
-          onNewLink={getLink}
-          onCancel={cancel}
-          busy={busy}
-        />
+        <PendingLink url={connection.authorizationUrl} onNewLink={getLink} onCancel={cancel} busy={busy} />
       )}
 
       {connection?.status === "connected" && (
@@ -127,30 +117,28 @@ export function ConnectPanel({ status, onChange, onContinue }: Props) {
             <div>
               <p className="flex items-center gap-2 text-sm font-medium text-success">
                 <Check className="size-4" aria-hidden />
-                Connected to vidIQ
+                {c.connected}
               </p>
               {status?.balance ? (
                 <Credits balance={status.balance} />
               ) : (
-                <p className="mt-3 text-sm text-muted-foreground">
-                  {status?.balanceError ?? "Checking your credit balance."}
-                </p>
+                <p className="mt-3 text-sm text-muted-foreground">{status?.balanceError ?? c.checkingBalance}</p>
               )}
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => setConfirm("switch")}>
                 <UserRoundCog aria-hidden />
-                Switch account
+                {c.switchAccount}
               </Button>
               <Button variant="ghost" onClick={() => setConfirm("disconnect")}>
                 <LogOut aria-hidden />
-                Disconnect
+                {c.disconnect}
               </Button>
             </div>
           </div>
           <div className="border-t px-6 py-4">
             <Button size="lg" onClick={onContinue}>
-              Continue to upload
+              {c.continue}
             </Button>
           </div>
         </div>
@@ -159,22 +147,18 @@ export function ConnectPanel({ status, onChange, onContinue }: Props) {
       <Dialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{confirm === "switch" ? "Switch vidIQ account?" : "Disconnect vidIQ?"}</DialogTitle>
-            <DialogDescription>
-              {confirm === "switch"
-                ? "This signs out the current account and gives you a new sign-in link. Sign in to the other account in your browser before opening it."
-                : "Running summaries pause until you connect again. Finished summaries are kept."}
-            </DialogDescription>
+            <DialogTitle>{confirm === "switch" ? c.switchTitle : c.disconnectTitle}</DialogTitle>
+            <DialogDescription>{confirm === "switch" ? c.switchBody : c.disconnectBody}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <DialogClose render={<Button variant="outline">Keep connected</Button>} />
+            <DialogClose render={<Button variant="outline">{c.keepConnected}</Button>} />
             {confirm === "switch" ? (
               <Button onClick={getLink} disabled={busy === "link"}>
-                Get new sign-in link
+                {c.getNewLink}
               </Button>
             ) : (
               <Button variant="destructive" onClick={disconnect} disabled={busy === "disconnect"}>
-                Disconnect
+                {c.disconnect}
               </Button>
             )}
           </DialogFooter>
@@ -195,6 +179,8 @@ function PendingLink({
   onCancel: () => void;
   busy: string | null;
 }) {
+  const { t } = useI18n();
+  const c = t.connect;
   const [copied, setCopied] = useState(false);
   const field = useRef<HTMLInputElement>(null);
 
@@ -206,7 +192,7 @@ function PendingLink({
       document.execCommand("copy");
     }
     setCopied(true);
-    toast.success("Sign-in link copied");
+    toast.success(c.linkCopied);
     window.setTimeout(() => setCopied(false), 2_000);
   };
 
@@ -214,7 +200,7 @@ function PendingLink({
     <div className="rounded-lg border bg-card">
       <div className="space-y-4 p-6">
         <label htmlFor="vidiq-link" className="text-sm font-medium">
-          Your sign-in link
+          {c.linkLabel}
         </label>
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
@@ -228,7 +214,7 @@ function PendingLink({
           <div className="flex gap-2">
             <Button size="lg" onClick={copy} className="flex-1 sm:flex-none">
               {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-              {copied ? "Copied" : "Copy link"}
+              {copied ? c.copied : c.copyLink}
             </Button>
             <Button
               size="lg"
@@ -238,17 +224,13 @@ function PendingLink({
               nativeButton={false}
             >
               <ExternalLink aria-hidden />
-              Open in browser
+              {c.openInBrowser}
             </Button>
           </div>
         </div>
 
         <ol className="grid gap-3 pt-2 text-sm sm:grid-cols-3">
-          {[
-            "Paste the link into the browser where you are signed in to the right vidIQ account.",
-            "Review the access request and approve it.",
-            "Come back here. This page updates on its own.",
-          ].map((text, i) => (
+          {c.howTo.map((text, i) => (
             <li key={text} className="flex gap-3 rounded-md bg-muted/60 p-3">
               <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-background text-xs font-semibold ring-1 ring-border">
                 {i + 1}
@@ -264,14 +246,14 @@ function PendingLink({
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-info opacity-60" />
             <span className="relative inline-flex size-2.5 rounded-full bg-info" />
           </span>
-          Waiting for you to approve access in vidIQ
+          {c.waiting}
         </p>
         <div className="flex gap-2">
           <Button variant="ghost" onClick={onNewLink} disabled={busy === "link"}>
-            Get a new link
+            {c.newLink}
           </Button>
           <Button variant="outline" onClick={onCancel} disabled={busy === "cancel"}>
-            Cancel
+            {c.cancel}
           </Button>
         </div>
       </div>
@@ -280,19 +262,18 @@ function PendingLink({
 }
 
 function Credits({ balance }: { balance: NonNullable<VidiqStatus["balance"]> }) {
-  if (balance.unlimited) {
-    return <p className="mt-3 text-3xl font-semibold tracking-tight">Unlimited credits</p>;
-  }
+  const { t, n, date } = useI18n();
+  const c = t.connect;
+  if (balance.unlimited) return <p className="mt-3 text-3xl font-semibold tracking-tight">{c.unlimited}</p>;
   const total = balance.total ?? 0;
   return (
     <div className="mt-3">
       <p className="text-3xl font-semibold tracking-tight">
-        {formatNumber(total)} <span className="text-base font-normal text-muted-foreground">credits</span>
+        {n(total)} <span className="text-base font-normal text-muted-foreground">{c.credits}</span>
       </p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Enough for about {plural(Math.floor(total / CREDIT_COST.long), "long video")} or{" "}
-        {plural(Math.floor(total / CREDIT_COST.short), "Short")}.
-        {balance.resetsAt ? ` Renews ${formatDate(balance.resetsAt)}.` : ""}
+        {c.enoughFor(n(Math.floor(total / CREDIT_COST.long)), n(Math.floor(total / CREDIT_COST.short)))}
+        {balance.resetsAt ? c.renews(date(balance.resetsAt)) : ""}
       </p>
     </div>
   );
