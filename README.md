@@ -2,18 +2,18 @@
 
 **Write the descriptions for a whole spreadsheet of YouTube videos in one go.**
 
-You give the app your list of videos and tell it how each summary should look. vidIQ watches every video and writes a summary in exactly that format, and the app puts each summary in the right row of your spreadsheet. When it is done, you download the finished file.
+You give the app your list of videos and tell it how each summary should look. vidIQ watches every video and writes the summary in exactly that format, **in English and in Spanish**. The app puts each summary in the right row of your spreadsheet and can also collect each video's **transcript**. When it is done, you download the finished spreadsheet or a ready-to-share **PDF report**.
 
 No more copying video links into vidIQ one at a time.
 
-Available in English and Spanish.
+The app itself can be used in English or Spanish.
 
 ---
 
 ## What you need
 
 - **A Windows computer.** Nothing needs to be installed beforehand.
-- **A vidIQ account with credits.** Each long video costs 25 vidIQ credits and each YouTube Short costs 10. The app always shows the cost before you start.
+- **A vidIQ account with credits.** A summary (in both languages) costs 25 vidIQ credits for a long video and 10 for a YouTube Short. Transcripts add 10 credits per video (5 per language). The app always shows the cost before you start.
 - **Your list of videos** as a CSV or Excel file (`.csv`, `.xlsx` or `.xls`), with one video per row and a column of YouTube links. Not sure about the format? The app has a sample file you can download and fill in.
 
 ## Getting started
@@ -41,7 +41,7 @@ You only do this once. To use another account later, choose **Switch account**.
 
 Drag your file onto the page, or click to choose it. Your original file is never changed; the app works on a copy.
 
-Earlier uploads are listed under **Your runs**, where you can open, rename or delete them.
+Earlier uploads are listed under **Your runs**, where you can open, rename, export or delete them.
 
 ### 3. Choose columns and template
 
@@ -54,7 +54,9 @@ Earlier uploads are listed under **Your runs**, where you can open, rename or de
   Topics: a comma-separated list of the main topics.
   ```
 
-- **Language.** Choose whether summaries are written in the video's own language, in English or in Spanish.
+- **Videos to process.** Process every video, only the first ones (for example the first 10), or pick exactly which videos you want. A search box helps you find videos by title, link or ID.
+- **Languages.** Every summary is written in English and in Spanish. You choose which language goes into the Description column; the other language goes into a new column right next to it.
+- **Transcripts.** Leave **Include transcripts in English and Spanish** on to collect what is said in each video. A Spanish transcript only exists when the video has Spanish captions on YouTube (the same for English).
 - **Try it on one video first.** See a real summary before you spend credits on the whole sheet. If you keep the same settings, that summary is reused when you start, so you never pay for that video twice.
 - **Before you start.** The app shows how many videos will be summarized, the estimated cost, and your balance.
 
@@ -63,9 +65,14 @@ Earlier uploads are listed under **Your runs**, where you can open, rename or de
 Click **Start summaries** and watch each row fill in. You can:
 
 - **Pause and resume** at any time. Nothing is lost.
-- **Read, edit or regenerate** any summary.
+- **Search** your videos by title, link, ID or summary text.
+- **Select videos** with the checkboxes to process videos you left out, get their transcripts, or download a PDF of just those videos.
+- **Read, edit or regenerate** any summary, in either language, and read the transcripts.
 - **Retry** videos that failed. Each failure explains what went wrong and what to do.
-- **Download** the spreadsheet at any time, even halfway through.
+- **Export** at any time, even halfway through:
+  - **Spreadsheet**: your file with the summaries in place.
+  - **Spreadsheet with transcripts**: the same, plus English and Spanish transcript columns.
+  - **PDF report**: a cover page and one section per video with both summaries and both transcripts. Each video can also be saved as its own PDF.
 
 You can leave the tab. The tab title shows the progress, and your browser can notify you when the run finishes.
 
@@ -76,6 +83,7 @@ You can leave the tab. The tab title shows the progress, and your browser can no
 - **Running out of credits is safe.** The run pauses, and you can continue after adding credits in vidIQ.
 - **Closing the window is safe.** Start the app again and the run continues where it stopped, without paying again for videos already sent to vidIQ.
 - **Ready to paste.** Summaries are written as plain text, ready for a YouTube description.
+- **Very long transcripts in Excel.** A spreadsheet cell holds up to 32,767 characters, so an extremely long transcript is cut at that point in the spreadsheet. The PDF always has the full text.
 - **Your data stays on your computer.** Only the video links and your template are sent to vidIQ. The app only accepts connections from this computer.
 
 ## If something goes wrong
@@ -87,6 +95,8 @@ You can leave the tab. The tab title shows the progress, and your browser can no
 | "vidIQ needs you to sign in again" | Go to **Connect**, get a new sign-in link and approve access again. |
 | "Out of vidIQ credits" | Add credits in vidIQ, then click **Resume**. |
 | A video failed | Read the reason shown in its row. You can **Retry** it, or **Write it yourself**. |
+| A transcript says "Not available" | YouTube has no captions in that language for the video. Nothing is wrong with the app. |
+| A download shows an error message | Read the message: it says what is missing. Your earlier downloads are not affected. |
 
 ## Developer
 
@@ -115,7 +125,9 @@ Browser (Next.js, React)  ->  API routes (src/app/api)  ->  job service and runn
 ```
 
 - **vidIQ connection:** OAuth 2.0 with PKCE and dynamic client registration through the Model Context Protocol SDK. Tokens are stored in the local SQLite database and refreshed automatically.
-- **Summaries:** each video goes to `vidiq_video_watch` (or `vidiq_watch_shortform_content` for Shorts) with the template as the prompt. The job is then polled with `vidiq_job_poll`, and the result is converted to plain text and saved right away.
+- **Summaries:** each video goes to `vidiq_video_watch` (or `vidiq_watch_shortform_content` for Shorts) with the template as the prompt, asking for an English version, a `=== ESPAÑOL ===` line, then a Spanish version. The job is polled with `vidiq_job_poll`, split into the two languages, converted to plain text and saved right away. If the Spanish half is missing, the video is asked for once more.
+- **Transcripts:** `vidiq_video_transcript` is called once per language after a summary is saved. A language without captions is stored as "not available", not as a failure.
+- **PDF reports:** built in the browser with pdfmake from `GET /api/jobs/[id]/report`.
 - **Reliability:** two videos are processed at a time. Network errors and temporary vidIQ outages are retried automatically, a pause takes effect immediately, and interrupted runs resume without sending videos again.
 - **Spreadsheets:** CSV files are written back byte for byte, keeping delimiter, quoting, line endings and BOM. Excel files keep their other sheets, numbers, formulas and links. Only the description cells change.
 - **Security:** the server listens on `localhost` only and refuses API requests that come from other websites or other host names.
@@ -151,4 +163,4 @@ Requires Node.js 22.13 or later (Node.js 24 recommended).
 
 ### Tech stack
 
-Next.js 16 and React 19 with TypeScript, Tailwind CSS 4 and shadcn/ui, SheetJS, the Model Context Protocol TypeScript SDK, the SQLite module built into Node.js, and Vitest.
+Next.js 16 and React 19 with TypeScript, Tailwind CSS 4 and shadcn/ui, SheetJS, pdfmake, the Model Context Protocol TypeScript SDK, the SQLite module built into Node.js, and Vitest.
