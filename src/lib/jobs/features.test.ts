@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { openDb, migrate, type Db } from "../db";
 import { completeRow, getJob, getRow, listRows, markRow } from "./repo";
-import { JobRunner, type Gateway, type PollResult } from "./runner";
+import { JobRunner, type Gateway, type PollResult, type TranscriptResult } from "./runner";
 import {
   clearAllRuns,
   configure,
@@ -42,7 +42,10 @@ beforeEach(() => {
 
 class FakeGateway implements Gateway {
   submits: string[] = [];
-  constructor(private text = "Summary:\nGreat.\n\nKey Points:\n- a\n\nTopics:\nx") {}
+  constructor(private text = "Summary:\nGreat.\n\nKey Points:\n- a\n\nTopics:\nx\n\n=== ESPAÑOL ===\n\nResumen:\nBien.") {}
+  async transcript(): Promise<TranscriptResult> {
+    return { status: "unavailable" };
+  }
   async submit(row: { videoId: string }) {
     this.submits.push(row.videoId);
     return `vj-${row.videoId}`;
@@ -115,7 +118,7 @@ describe("summarize since", () => {
 
 describe("editRow", () => {
   it("saves an edited summary on a finished or failed row", () => {
-    completeRow(db, jobId, 1, "Original", "Missing section: Topics");
+    completeRow(db, jobId, 1, "Original", null, "Missing section: Topics");
     editRow(db, jobId, 1, "  Better text  ");
     expect(getRow(db, jobId, 1)).toMatchObject({ status: "done", summary: "Better text", warning: null, edited: true });
 
@@ -131,21 +134,21 @@ describe("editRow", () => {
 
 describe("regenerateRow", () => {
   it("re-queues the row and its unedited repeats", () => {
-    completeRow(db, jobId, 1, "Old", null);
+    completeRow(db, jobId, 1, "Old", null, null);
     regenerateRow(db, jobId, 1);
     expect(getRow(db, jobId, 1)).toMatchObject({ status: "pending", summary: null, vidiqJobId: null, attempts: 0 });
     expect(getRow(db, jobId, 3)).toMatchObject({ status: "duplicate", summary: null });
   });
 
   it("keeps a repeat that was edited by hand", () => {
-    completeRow(db, jobId, 1, "Old", null);
+    completeRow(db, jobId, 1, "Old", null, null);
     editRow(db, jobId, 3, "Mine");
     regenerateRow(db, jobId, 1);
     expect(getRow(db, jobId, 3)).toMatchObject({ status: "done", summary: "Mine" });
   });
 
   it("regenerates the original when asked from a repeated video", () => {
-    completeRow(db, jobId, 1, "Old", null);
+    completeRow(db, jobId, 1, "Old", null, null);
     regenerateRow(db, jobId, 3);
     expect(getRow(db, jobId, 1)!.status).toBe("pending");
     expect(getRow(db, jobId, 3)!.status).toBe("duplicate");
@@ -157,21 +160,22 @@ describe("regenerateRow", () => {
   });
 });
 
-describe("summary language", () => {
-  it("is saved with the configuration and sent to vidIQ", async () => {
-    configure(db, store, jobId, { videoCol: 1, descriptionCol: 2, template: "Summary: x", overwrite: false, summaryLanguage: "es" });
-    expect(getJob(db, jobId)!.summaryLanguage).toBe("es");
+describe("description language", () => {
+  it("is saved with the configuration, and vidIQ is asked for both languages", async () => {
+    configure(db, store, jobId, { videoCol: 1, descriptionCol: 2, template: "Summary: x", overwrite: false, descriptionLanguage: "es" });
+    expect(getJob(db, jobId)!.descriptionLanguage).toBe("es");
     const prompts: string[] = [];
     const gateway: Gateway = {
       submit: async (_row, prompt) => {
         prompts.push(prompt);
         return "vj";
       },
-      poll: async () => ({ state: "done", text: "Summary:\nHola" }),
+      poll: async () => ({ state: "done", text: "Summary:\nHi\n\n=== ESPAÑOL ===\n\nResumen:\nBien." }),
+      transcript: async () => ({ status: "unavailable" }),
     };
     markRow(db, jobId, 2, { status: "filled" });
     await new JobRunner(db, jobId, gateway, { concurrency: 1, maxAttempts: 1, ...fast }).run();
-    expect(prompts[0]).toMatch(/Spanish/);
+    expect(prompts[0]).toContain("=== ESPAÑOL ===");
   });
 });
 
@@ -203,14 +207,18 @@ describe("trial summary", () => {
   it("ignores the trial when the template changed afterwards", async () => {
     startPreview(db, jobId);
     await runPreview(db, jobId, new FakeGateway(), fast);
-    configure(db, store, jobId, { videoCol: 1, descriptionCol: 2, template: "Summary: different", overwrite: false, summaryLanguage: "auto" });
+    configure(db, store, jobId, { videoCol: 1, descriptionCol: 2, template: "Summary: different", overwrite: false });
     expect(consumePreview(db, jobId)).toBe(false);
     expect(getRow(db, jobId, 1)!.status).toBe("pending");
   });
 
   it("records a failed trial", async () => {
     startPreview(db, jobId);
-    const failing: Gateway = { submit: async () => "vj", poll: async () => ({ state: "failed", message: "Video unavailable" }) };
+    const failing: Gateway = {
+      submit: async () => "vj",
+      poll: async () => ({ state: "failed", message: "Video unavailable" }),
+      transcript: async () => ({ status: "unavailable" }),
+    };
     await runPreview(db, jobId, failing, fast);
     expect(getPreview(db, jobId)).toMatchObject({ status: "failed", error: "Video unavailable" });
   });

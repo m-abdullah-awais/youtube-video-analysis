@@ -4,7 +4,8 @@ import { downloadResult } from "@/lib/jobs/service";
 export async function GET(request: Request, { params }: IdParams) {
   return handle(request, async () => {
     const { id } = await params;
-    const file = downloadResult(db(), store, id);
+    const transcripts = new URL(request.url).searchParams.get("transcripts") === "1";
+    const file = downloadResult(db(), store, id, { transcripts });
     return new Response(Buffer.from(file.data), {
       headers: {
         "Content-Type": file.contentType,

@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, FlaskConical, Loader2, Play } from "lucide-react";
+import { AlertTriangle, FlaskConical, Loader2, Play, Search } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -11,7 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage, type JobSummary, type TableInfo, type VidiqStatus } from "@/lib/client/api";
 import { columnLetter, displayRow } from "@/lib/client/format";
 import { useI18n } from "@/lib/i18n/provider";
-import type { SummaryLanguage } from "@/lib/jobs/repo";
+import { matchesQuery } from "@/lib/client/search";
+import type { DescriptionLanguage, JobRow, Selection } from "@/lib/jobs/repo";
 import { MAX_TEMPLATE_LENGTH, templateSections } from "@/lib/template/template";
 import { cn } from "@/lib/utils";
 import { CREDIT_COST } from "@/lib/vidiq/costs";
@@ -23,7 +26,9 @@ type Form = {
   videoCol: number | null;
   descriptionCol: number | "new";
   template: string;
-  summaryLanguage: SummaryLanguage;
+  descriptionLanguage: DescriptionLanguage;
+  includeTranscripts: boolean;
+  selection: Selection;
   overwrite: boolean;
 };
 
@@ -45,7 +50,9 @@ export function ConfigurePanel({ summary, vidiq, onSummary, onStarted, onConnect
     videoCol: job.videoCol,
     descriptionCol: job.descriptionHeader || job.descriptionCol === null ? "new" : job.descriptionCol,
     template: job.template || c.presets[0].template,
-    summaryLanguage: job.summaryLanguage,
+    descriptionLanguage: job.descriptionLanguage,
+    includeTranscripts: job.includeTranscripts,
+    selection: job.selection,
     overwrite: job.overwrite,
   }));
   const [saving, setSaving] = useState(false);
@@ -89,7 +96,9 @@ export function ConfigurePanel({ summary, vidiq, onSummary, onStarted, onConnect
             videoCol: form.videoCol!,
             descriptionCol: form.descriptionCol,
             template: form.template,
-            summaryLanguage: form.summaryLanguage,
+            descriptionLanguage: form.descriptionLanguage,
+            includeTranscripts: form.includeTranscripts,
+            selection: form.selection,
             overwrite: form.overwrite,
           }),
         );
@@ -136,7 +145,8 @@ export function ConfigurePanel({ summary, vidiq, onSummary, onStarted, onConnect
   const templateTooLong = form.template.trim().length > MAX_TEMPLATE_LENGTH;
   const trialRunning = preview?.status === "running";
   const settingsValid = form.videoCol !== null && !saving && !saveError && !templateTooLong && !!form.template.trim();
-  const canStart = connected && settingsValid && estimate.videos > 0 && !trialRunning;
+  const noneChosen = form.selection.mode === "rows" && form.selection.rows.length === 0;
+  const canStart = connected && settingsValid && estimate.videos > 0 && !trialRunning && !noneChosen;
   const invalidRows = summary.rows.filter((r) => r.status === "invalid");
 
   return (
@@ -217,30 +227,42 @@ export function ConfigurePanel({ summary, vidiq, onSummary, onStarted, onConnect
         </div>
       )}
 
+      {table && form.videoCol !== null && (
+        <VideoSelection
+          rows={summary.rows}
+          selection={form.selection}
+          onChange={(selection) => setForm((f) => ({ ...f, selection }))}
+        />
+      )}
+
       <div className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold">{c.templateTitle}</h3>
             <p className="mt-1 text-sm text-muted-foreground">{c.templateHelp}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{c.bilingual}</p>
           </div>
-          <div className="w-full space-y-1.5 sm:w-64">
-            <Label htmlFor="summary-language">{c.summaryLanguage}</Label>
+          <div className="w-full space-y-1.5 sm:w-72">
+            <Label htmlFor="description-language">{c.descriptionLanguage}</Label>
             <Select
-              value={form.summaryLanguage}
-              onValueChange={(value) => value && setForm((f) => ({ ...f, summaryLanguage: value as SummaryLanguage }))}
-              items={(["auto", "en", "es"] as const).map((value) => ({ value, label: c.languages[value] }))}
+              value={form.descriptionLanguage}
+              onValueChange={(value) => value && setForm((f) => ({ ...f, descriptionLanguage: value as DescriptionLanguage }))}
+              items={(["en", "es"] as const).map((value) => ({ value, label: c.languages[value] }))}
             >
-              <SelectTrigger id="summary-language" className="w-full bg-card">
+              <SelectTrigger id="description-language" className="w-full bg-card">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(["auto", "en", "es"] as const).map((value) => (
+                {(["en", "es"] as const).map((value) => (
                   <SelectItem key={value} value={value}>
                     {c.languages[value]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              {c.descriptionLanguageHelp(c.languageWords[form.descriptionLanguage === "en" ? "es" : "en"])}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2" role="group" aria-label={c.presetsLabel}>
@@ -337,6 +359,17 @@ export function ConfigurePanel({ summary, vidiq, onSummary, onStarted, onConnect
             </ul>
             <div className="flex items-start gap-3">
               <Switch
+                id="transcripts"
+                checked={form.includeTranscripts}
+                onCheckedChange={(includeTranscripts) => setForm((f) => ({ ...f, includeTranscripts }))}
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="transcripts">{c.transcripts}</Label>
+                <p className="text-xs text-muted-foreground">{c.transcriptsHelp(CREDIT_COST.transcript * 2)}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <Switch
                 id="overwrite"
                 checked={form.overwrite}
                 onCheckedChange={(overwrite) => setForm((f) => ({ ...f, overwrite }))}
@@ -356,6 +389,11 @@ export function ConfigurePanel({ summary, vidiq, onSummary, onStarted, onConnect
               <p className="text-3xl font-semibold tracking-tight">
                 {n(estimate.credits)} <span className="text-base font-normal text-muted-foreground">{c.credits}</span>
               </p>
+              {estimate.transcriptCredits > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {c.summaryCost} {n(estimate.summaryCredits)}, {c.transcriptCost.toLowerCase()} {n(estimate.transcriptCredits)}
+                </p>
+              )}
               {balance && !balance.unlimited && balance.total !== null && (
                 <p className={cn("text-sm", short ? "text-warning" : "text-muted-foreground")}>{c.youHave(n(balance.total))}</p>
               )}
@@ -372,8 +410,9 @@ export function ConfigurePanel({ summary, vidiq, onSummary, onStarted, onConnect
             )}
           </div>
         </div>
-        {(short || saveError) && (
+        {(short || saveError || noneChosen) && (
           <div className="space-y-3 border-t px-6 py-4">
+            {noneChosen && <p className="text-sm text-warning">{c.noneChosen}</p>}
             {short && <p className="text-sm text-warning">{c.notEnough}</p>}
             {saveError && (
               <p className="text-sm text-destructive" role="alert">
@@ -403,8 +442,7 @@ function TrialCard({
   const { t } = useI18n();
   const c = t.configure;
   const { preview } = summary;
-  const stale =
-    preview && (preview.template !== form.template.trim() || preview.language !== form.summaryLanguage);
+  const stale = preview && preview.template !== form.template.trim();
   const running = preview?.status === "running";
 
   return (
@@ -438,8 +476,18 @@ function TrialCard({
           {preview.status === "done" && (
             <div className="space-y-3">
               <p className="text-sm font-medium">{c.trialResult(String(displayRow(preview.sheetRow)))}</p>
-              <div className="max-h-72 overflow-y-auto rounded-md border bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-line">
-                {preview.summary}
+              <div className="grid gap-3 lg:grid-cols-2">
+                {([
+                  ["en", preview.summary],
+                  ["es", preview.summaryEs],
+                ] as const).map(([language, text]) => (
+                  <div key={language} className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">{c.languages[language]}</p>
+                    <div className="max-h-72 overflow-y-auto rounded-md border bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-line">
+                      {text ?? <span className="text-muted-foreground italic">{t.run.spanishMissing}</span>}
+                    </div>
+                  </div>
+                ))}
               </div>
               {preview.warning && <p className="text-sm text-warning">{preview.warning}</p>}
               <p className={cn("text-xs", stale ? "text-warning" : "text-muted-foreground")}>{stale ? c.trialStale : c.trialKept}</p>
@@ -603,5 +651,146 @@ function PreviewGrid({
         {c.previewCaption(Math.min(table.preview.length, table.rowCount), n(table.rowCount))}
       </figcaption>
     </figure>
+  );
+}
+
+const PAGE = 200;
+
+/** Process every video, the first N, or hand-picked videos (with search). */
+function VideoSelection({
+  rows,
+  selection,
+  onChange,
+}: {
+  rows: JobRow[];
+  selection: Selection;
+  onChange: (selection: Selection) => void;
+}) {
+  const { t, n } = useI18n();
+  const c = t.configure;
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(PAGE);
+  // Rows with a video that this run could summarize (not invalid, not kept as they are).
+  const candidates = useMemo(
+    () => rows.filter((r) => r.videoId && (r.status === "pending" || r.status === "excluded" || r.status === "duplicate")),
+    [rows],
+  );
+  const shown = useMemo(() => candidates.filter((r) => matchesQuery(r, query)), [candidates, query]);
+  const chosen = new Set(selection.mode === "rows" ? selection.rows : []);
+
+  const setMode = (mode: Selection["mode"]) => {
+    if (mode === "all") onChange({ mode: "all" });
+    if (mode === "first") onChange({ mode: "first", count: Math.min(10, candidates.length) || 1 });
+    if (mode === "rows") onChange({ mode: "rows", rows: candidates.filter((r) => r.status !== "excluded").map((r) => r.sheetRow) });
+  };
+  const toggle = (sheetRow: number, on: boolean) => {
+    const next = new Set(chosen);
+    if (on) next.add(sheetRow);
+    else next.delete(sheetRow);
+    onChange({ mode: "rows", rows: [...next].sort((a, b) => a - b) });
+  };
+
+  const modes: { id: Selection["mode"]; label: string }[] = [
+    { id: "all", label: c.modeAll },
+    { id: "first", label: c.modeFirst },
+    { id: "rows", label: c.modeRows },
+  ];
+
+  return (
+    <div className="rounded-lg border bg-card">
+      <div className="space-y-4 p-6">
+        <div>
+          <h3 className="text-base font-semibold">{c.videosTitle}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">{c.videosHelp}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-1 rounded-lg bg-muted p-1" role="group" aria-label={c.videosTitle}>
+            {modes.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                aria-pressed={selection.mode === mode.id}
+                onClick={() => setMode(mode.id)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  selection.mode === mode.id ? "bg-card font-medium shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+          {selection.mode === "first" && (
+            <label className="flex items-center gap-2 text-sm">
+              <span className="sr-only">{c.countLabel}</span>
+              <Input
+                type="number"
+                min={1}
+                max={candidates.length}
+                value={selection.count}
+                onChange={(e) => {
+                  const count = Math.max(1, Math.min(candidates.length, Number(e.target.value) || 1));
+                  onChange({ mode: "first", count });
+                }}
+                className="h-8 w-24 bg-card"
+              />
+              <span className="text-muted-foreground">{c.modeFirstUnit}</span>
+            </label>
+          )}
+        </div>
+
+        {selection.mode === "rows" && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative min-w-60 flex-1">
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                <Input
+                  type="search"
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setLimit(PAGE);
+                  }}
+                  placeholder={c.searchPlaceholder}
+                  aria-label={c.searchPlaceholder}
+                  className="h-9 bg-card pl-8"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onChange({ mode: "rows", rows: [...new Set([...chosen, ...shown.map((r) => r.sheetRow)])].sort((a, b) => a - b) })}
+              >
+                {c.selectShown(n(shown.length))}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => onChange({ mode: "rows", rows: [] })}>
+                {c.clearSelection}
+              </Button>
+            </div>
+            <p className="text-sm font-medium" aria-live="polite">
+              {c.selectedCount(n(chosen.size), n(candidates.length))}
+            </p>
+            <ul className="max-h-80 divide-y overflow-y-auto rounded-md border">
+              {shown.slice(0, limit).map((row) => (
+                <li key={row.sheetRow}>
+                  <label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/50">
+                    <Checkbox checked={chosen.has(row.sheetRow)} onCheckedChange={(on) => toggle(row.sheetRow, on)} />
+                    <span className="w-8 shrink-0 font-mono text-xs text-muted-foreground">{displayRow(row.sheetRow)}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm">{row.title || row.videoId}</span>
+                    <span className="hidden font-mono text-xs text-muted-foreground sm:inline">{row.videoId}</span>
+                  </label>
+                </li>
+              ))}
+              {shown.length === 0 && <li className="px-3 py-6 text-center text-sm text-muted-foreground">{c.noMatches}</li>}
+            </ul>
+            {shown.length > limit && (
+              <Button variant="ghost" size="sm" onClick={() => setLimit((l) => l + PAGE)}>
+                {t.run.showMore(n(Math.min(PAGE, shown.length - limit)))}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

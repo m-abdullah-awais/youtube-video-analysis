@@ -7,7 +7,15 @@ const ConfigBody = z.object({
   videoCol: z.number().int().min(0),
   descriptionCol: z.union([z.number().int().min(0), z.literal("new")]),
   template: z.string(),
-  summaryLanguage: z.enum(["auto", "en", "es"]).optional(),
+  descriptionLanguage: z.enum(["en", "es"]).optional(),
+  includeTranscripts: z.boolean().optional(),
+  selection: z
+    .discriminatedUnion("mode", [
+      z.object({ mode: z.literal("all") }),
+      z.object({ mode: z.literal("first"), count: z.number().int().min(0).max(5_000) }),
+      z.object({ mode: z.literal("rows"), rows: z.array(z.number().int().min(0)).max(5_000) }),
+    ])
+    .optional(),
   overwrite: z.boolean(),
 });
 

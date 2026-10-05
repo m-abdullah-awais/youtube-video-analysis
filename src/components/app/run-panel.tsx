@@ -1,17 +1,42 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Download, ExternalLink, Loader2, Pause, PenLine, Play, RefreshCw, RotateCcw, Upload } from "lucide-react";
+import {
+  Captions,
+  Check,
+  ChevronDown,
+  Copy,
+  Download,
+  ExternalLink,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+  Pause,
+  PenLine,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Upload,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { api, errorMessage, type JobSummary, type VidiqStatus } from "@/lib/client/api";
+import { api, errorMessage, type JobSummary, type ReportItem, type VidiqStatus } from "@/lib/client/api";
+import { downloadFile } from "@/lib/client/download";
 import { displayRow, formatDuration } from "@/lib/client/format";
+import { downloadRunPdf, downloadVideoPdf } from "@/lib/client/pdf";
+import { matchesQuery } from "@/lib/client/search";
 import { useI18n } from "@/lib/i18n/provider";
-import type { JobRow } from "@/lib/jobs/repo";
+import type { JobRow, Language } from "@/lib/jobs/repo";
 import { cn } from "@/lib/utils";
 import { CREDIT_COST } from "@/lib/vidiq/costs";
 import { FailureNote } from "./failure-note";
@@ -19,7 +44,7 @@ import { requestNotificationPermission } from "./notifications";
 import { PanelHeader } from "./panel-header";
 import { RowStatus } from "./row-status";
 
-type Filter = "all" | "done" | "working" | "failed" | "skipped";
+type Filter = "all" | "done" | "working" | "failed" | "skipped" | "excluded";
 
 const FILTERS: { id: Filter; match: (r: JobRow) => boolean }[] = [
   { id: "all", match: () => true },
@@ -27,12 +52,18 @@ const FILTERS: { id: Filter; match: (r: JobRow) => boolean }[] = [
   { id: "working", match: (r) => r.status === "pending" || r.status === "running" || r.status === "duplicate" },
   { id: "failed", match: (r) => r.status === "failed" },
   { id: "skipped", match: (r) => r.status === "filled" || r.status === "invalid" },
+  { id: "excluded", match: (r) => r.status === "excluded" },
 ];
 
 const PAGE = 100;
 
-type Busy = "pause" | "resume" | "retry" | number | null;
-type Opened = { row: JobRow; mode: "view" | "edit" | "regenerate" } | null;
+type Busy = "pause" | "resume" | "retry" | "export" | "transcripts" | "selection" | number | null;
+type Mode = "view" | "edit" | "regenerate";
+type Opened = { row: JobRow; mode: Mode } | null;
+
+/** Finished rows whose transcripts were never fetched, or failed. */
+const needsTranscripts = (row: JobRow) =>
+  row.status === "done" && !!row.videoId && (row.transcripts.en === null || row.transcripts.en === "failed" || row.transcripts.es === "failed");
 
 type Props = {
   summary: JobSummary;
@@ -43,19 +74,23 @@ type Props = {
 };
 
 export function RunPanel({ summary, vidiq, onSummary, onNewRun, onConnect }: Props) {
-  const { t, n } = useI18n();
+  const i18n = useI18n();
+  const { t, n } = i18n;
   const r = t.run;
   const { job, rows, counts } = summary;
   const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(PAGE);
   const [busy, setBusy] = useState<Busy>(null);
   const [opened, setOpened] = useState<Opened>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const fresh = useFreshlyDone(rows);
 
-  const act = async (kind: NonNullable<Busy>, call: () => Promise<JobSummary>, success?: string) => {
+  const act = async (kind: NonNullable<Busy>, call: () => Promise<JobSummary | void>, success?: string) => {
     setBusy(kind);
     try {
-      onSummary(await call());
+      const next = await call();
+      if (next) onSummary(next);
       if (success) toast.success(success);
       return true;
     } catch (e) {
@@ -72,14 +107,59 @@ export function RunPanel({ summary, vidiq, onSummary, onNewRun, onConnect }: Pro
   const target = counts.pending + counts.running + counts.done + counts.failed + counts.duplicate;
   const percent = target ? Math.round((counts.done / target) * 100) : 100;
   const eta = useEta(summary);
-  const visible = useMemo(() => rows.filter(FILTERS.find((f) => f.id === filter)!.match), [rows, filter]);
+  const connected = vidiq?.connection.status === "connected";
+  const words = { t, date: i18n.date };
+
+  const visible = useMemo(() => {
+    const match = FILTERS.find((f) => f.id === filter)!.match;
+    return rows.filter((row) => match(row) && matchesQuery(row, query));
+  }, [rows, filter, query]);
   const filterCounts = useMemo(
     () => Object.fromEntries(FILTERS.map((f) => [f.id, rows.filter(f.match).length])) as Record<Filter, number>,
     [rows],
   );
-  const connected = vidiq?.connection.status === "connected";
+  const missingTranscripts = useMemo(() => rows.filter(needsTranscripts).length, [rows]);
+  const page = visible.slice(0, limit);
+
+  // Selection only keeps rows that still exist.
+  const chosen = rows.filter((row) => selected.has(row.sheetRow));
+  const toProcess = chosen.filter((row) => row.status === "excluded" || row.status === "failed");
+  const chosenDone = chosen.filter((row) => row.status === "done");
+  const allShownSelected = page.length > 0 && page.every((row) => selected.has(row.sheetRow));
+  const toggle = (sheetRow: number, on: boolean) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (on) next.add(sheetRow);
+      else next.delete(sheetRow);
+      return next;
+    });
+
   // Keep the dialog in sync with live updates to its row.
   const openRow = opened ? (rows.find((x) => x.sheetRow === opened.row.sheetRow) ?? opened.row) : null;
+
+  const exportSheet = (transcripts: boolean) =>
+    act("export", () => downloadFile(api.downloadUrl(job.id, transcripts), `${job.name}.${job.format}`)).then(
+      (ok) => ok || undefined,
+    );
+  const exportPdf = (sheetRows?: number[]) =>
+    act("export", async () => {
+      const report = await api.report(job.id, sheetRows);
+      if (report.items.length === 0) throw new Error(r.nothingToExport);
+      toast(r.preparingPdf);
+      if (sheetRows?.length === 1) await downloadVideoPdf(report, words);
+      else await downloadRunPdf(report, words);
+    }, r.pdfReady);
+
+  const processSelected = () =>
+    act("selection", async () => {
+      requestNotificationPermission();
+      const excluded = toProcess.filter((row) => row.status === "excluded").map((row) => row.sheetRow);
+      let next: JobSummary | undefined;
+      if (excluded.length) next = await api.include(job.id, excluded);
+      for (const row of toProcess.filter((x) => x.status === "failed")) next = await api.retry(job.id, row.sheetRow);
+      setSelected(new Set());
+      return next;
+    }, r.added(toProcess.length));
 
   const title = finished ? (counts.failed > 0 ? r.titleDoneFailures : r.titleDone) : paused ? r.titlePaused : r.titleRunning;
 
@@ -119,10 +199,39 @@ export function RunPanel({ summary, vidiq, onSummary, onNewRun, onConnect }: Pro
                 {r.retryFailed(n(counts.failed))}
               </Button>
             )}
-            <Button variant={finished ? "default" : "outline"} render={<a href={api.downloadUrl(job.id)} download />} nativeButton={false}>
-              <Download aria-hidden />
-              {finished ? r.download : r.downloadSoFar}
-            </Button>
+            {missingTranscripts > 0 && !running && (
+              <Button
+                variant="outline"
+                onClick={() => act("transcripts", () => api.transcripts(job.id), r.transcriptsQueued)}
+                disabled={busy === "transcripts" || !connected}
+              >
+                <Captions aria-hidden />
+                {r.getTranscriptsAll(n(missingTranscripts))}
+              </Button>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant={finished ? "default" : "outline"} disabled={busy === "export"} />}
+              >
+                {busy === "export" ? <Loader2 className="animate-spin" aria-hidden /> : <Download aria-hidden />}
+                {r.exportLabel}
+                <ChevronDown aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-60">
+                <DropdownMenuItem onClick={() => void exportSheet(false)}>
+                  <FileSpreadsheet aria-hidden />
+                  {r.exportSheet}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void exportSheet(true)}>
+                  <FileSpreadsheet aria-hidden />
+                  {r.exportSheetTranscripts}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void exportPdf()}>
+                  <FileText aria-hidden />
+                  {r.exportPdf}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         }
       />
@@ -181,14 +290,28 @@ export function RunPanel({ summary, vidiq, onSummary, onNewRun, onConnect }: Pro
           <Stat label={r.stats.running} value={n(counts.running)} tone="text-info" />
           <Stat label={r.stats.waiting} value={n(counts.pending + counts.duplicate)} />
           <Stat label={r.stats.failed} value={n(counts.failed)} tone={counts.failed ? "text-destructive" : undefined} />
-          <Stat label={r.stats.skipped} value={n(counts.filled + counts.invalid)} />
+          <Stat label={r.stats.skipped} value={n(counts.filled + counts.invalid + counts.excluded)} />
         </dl>
       </div>
 
       <div className="space-y-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setLimit(PAGE);
+            }}
+            placeholder={r.searchPlaceholder}
+            aria-label={r.searchPlaceholder}
+            className="h-10 bg-card pl-9"
+          />
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1 rounded-lg bg-muted p-1" role="group" aria-label={r.filtersLabel}>
-            {FILTERS.map((f) => (
+            {FILTERS.filter((f) => f.id !== "excluded" || filterCounts.excluded > 0).map((f) => (
               <button
                 key={f.id}
                 type="button"
@@ -214,19 +337,65 @@ export function RunPanel({ summary, vidiq, onSummary, onNewRun, onConnect }: Pro
           )}
         </div>
 
+        {chosen.length > 0 && (
+          <div
+            role="region"
+            aria-label={r.selected(n(chosen.length))}
+            className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-accent px-4 py-2.5 shadow-sm"
+          >
+            <span className="mr-auto text-sm font-medium text-accent-foreground">{r.selected(n(chosen.length))}</span>
+            {toProcess.length > 0 && (
+              <Button size="sm" onClick={processSelected} disabled={busy === "selection" || !connected || running}>
+                <Play aria-hidden />
+                {r.addToRun}
+              </Button>
+            )}
+            {chosenDone.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  act("transcripts", () => api.transcripts(job.id, chosenDone.map((row) => row.sheetRow)), r.transcriptsQueued)
+                }
+                disabled={busy === "transcripts" || !connected}
+              >
+                <Captions aria-hidden />
+                {r.getTranscripts}
+              </Button>
+            )}
+            {chosenDone.length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => exportPdf(chosenDone.map((row) => row.sheetRow))} disabled={busy === "export"}>
+                <FileText aria-hidden />
+                {r.downloadPdf}
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+              <X aria-hidden />
+              {r.clearSelection}
+            </Button>
+          </div>
+        )}
+
         <div className="overflow-hidden rounded-lg border bg-card">
           {/* Phones: one card per row, so the description is never off-screen. */}
           <ul className="divide-y md:hidden">
-            {visible.slice(0, limit).map((row) => (
+            {page.map((row) => (
               <li key={row.sheetRow} className={cn("space-y-3 p-4", fresh.has(row.sheetRow) && "animate-cell-fill")}>
                 <div className="flex items-start gap-3">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={selected.has(row.sheetRow)}
+                    onCheckedChange={(on) => toggle(row.sheetRow, on)}
+                    aria-label={r.selectRow(String(displayRow(row.sheetRow)))}
+                  />
                   <span className="mt-0.5 w-7 shrink-0 font-mono text-xs text-muted-foreground">{displayRow(row.sheetRow)}</span>
                   <VideoCell row={row} />
                   <RowStatus status={row.status} paused={!running} />
                 </div>
-                <div className="pl-10 text-sm">
+                <div className="pl-16 text-sm">
                   <DescriptionCell
                     row={row}
+                    primary={job.descriptionLanguage}
                     paused={!running}
                     retrying={busy === row.sheetRow}
                     canRetry={connected && !running}
@@ -238,9 +407,25 @@ export function RunPanel({ summary, vidiq, onSummary, onNewRun, onConnect }: Pro
             ))}
           </ul>
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[46rem] border-collapse text-sm">
+            <table className="w-full min-w-[48rem] border-collapse text-sm">
               <thead className="bg-muted/70 text-left text-xs text-muted-foreground">
                 <tr>
+                  <th scope="col" className="w-10 border-b border-grid px-3 py-2">
+                    <Checkbox
+                      checked={allShownSelected}
+                      onCheckedChange={(on) =>
+                        setSelected((current) => {
+                          const next = new Set(current);
+                          for (const row of page) {
+                            if (on) next.add(row.sheetRow);
+                            else next.delete(row.sheetRow);
+                          }
+                          return next;
+                        })
+                      }
+                      aria-label={r.selectShown}
+                    />
+                  </th>
                   <th scope="col" className="w-14 border-b border-grid px-3 py-2 text-center font-medium">
                     {r.columns.row}
                   </th>
@@ -256,17 +441,38 @@ export function RunPanel({ summary, vidiq, onSummary, onNewRun, onConnect }: Pro
                 </tr>
               </thead>
               <tbody>
-                {visible.slice(0, limit).map((row) => (
-                  <LedgerRow
-                    key={row.sheetRow}
-                    row={row}
-                    paused={!running}
-                    fresh={fresh.has(row.sheetRow)}
-                    retrying={busy === row.sheetRow}
-                    canRetry={connected && !running}
-                    onOpen={(mode) => setOpened({ row, mode })}
-                    onRetry={() => act(row.sheetRow, () => api.retry(job.id, row.sheetRow), r.retryingRow(String(displayRow(row.sheetRow))))}
-                  />
+                {page.map((row) => (
+                  <tr key={row.sheetRow} className={cn("align-top hover:bg-muted/40", selected.has(row.sheetRow) && "bg-accent/50")}>
+                    <td className="border-b border-grid px-3 py-3">
+                      <Checkbox
+                        checked={selected.has(row.sheetRow)}
+                        onCheckedChange={(on) => toggle(row.sheetRow, on)}
+                        aria-label={r.selectRow(String(displayRow(row.sheetRow)))}
+                      />
+                    </td>
+                    <td className="border-b border-grid px-3 py-3 text-center font-mono text-xs text-muted-foreground">
+                      {displayRow(row.sheetRow)}
+                    </td>
+                    <td className="border-b border-grid px-3 py-3">
+                      <VideoCell row={row} />
+                    </td>
+                    <td className="border-b border-grid px-3 py-3">
+                      <RowStatus status={row.status} paused={!running} />
+                    </td>
+                    <td className={cn("border-b border-grid px-3 py-3", fresh.has(row.sheetRow) && "animate-cell-fill")}>
+                      <DescriptionCell
+                        row={row}
+                        primary={job.descriptionLanguage}
+                        paused={!running}
+                        retrying={busy === row.sheetRow}
+                        canRetry={connected && !running}
+                        onOpen={(mode) => setOpened({ row, mode })}
+                        onRetry={() =>
+                          act(row.sheetRow, () => api.retry(job.id, row.sheetRow), r.retryingRow(String(displayRow(row.sheetRow))))
+                        }
+                      />
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -283,20 +489,25 @@ export function RunPanel({ summary, vidiq, onSummary, onNewRun, onConnect }: Pro
       </div>
 
       <SummaryDialog
+        jobId={job.id}
         row={openRow}
         mode={opened?.mode ?? "view"}
+        primary={job.descriptionLanguage}
         canRegenerate={connected}
         busy={openRow ? busy === openRow.sheetRow : false}
         onMode={(mode) => opened && setOpened({ ...opened, mode })}
         onClose={() => setOpened(null)}
-        onSave={async (text) => {
+        onSave={async (text, language) => {
           if (!openRow) return;
-          if (await act(openRow.sheetRow, () => api.editRow(job.id, openRow.sheetRow, text), r.saved)) setOpened(null);
+          if (await act(openRow.sheetRow, () => api.editRow(job.id, openRow.sheetRow, text, language), r.saved)) {
+            setOpened({ row: openRow, mode: "view" });
+          }
         }}
         onRegenerate={async () => {
           if (!openRow) return;
           if (await act(openRow.sheetRow, () => api.regenerateRow(job.id, openRow.sheetRow), r.regenerating)) setOpened(null);
         }}
+        onPdf={() => openRow && exportPdf([openRow.sheetRow])}
       />
     </section>
   );
@@ -310,16 +521,6 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
     </div>
   );
 }
-
-type RowProps = {
-  row: JobRow;
-  paused: boolean;
-  fresh: boolean;
-  retrying: boolean;
-  canRetry: boolean;
-  onOpen: (mode: "view" | "edit") => void;
-  onRetry: () => void;
-};
 
 function VideoCell({ row }: { row: JobRow }) {
   const { t } = useI18n();
@@ -351,43 +552,82 @@ function VideoCell({ row }: { row: JobRow }) {
   );
 }
 
-function LedgerRow({ row, paused, fresh, retrying, canRetry, onOpen, onRetry }: RowProps) {
+/** Small markers for which summaries and transcripts a finished row has. */
+function Availability({ row }: { row: JobRow }) {
+  const { t } = useI18n();
+  const chip = (label: string, ok: boolean, title: string) => (
+    <span
+      title={title}
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] font-medium",
+        ok ? "bg-success-soft text-success" : "bg-muted text-muted-foreground line-through",
+      )}
+    >
+      {label}
+    </span>
+  );
+  const transcript = (language: Language) => row.transcripts[language];
   return (
-    <tr className="align-top hover:bg-muted/40">
-      <td className="border-b border-grid px-3 py-3 text-center font-mono text-xs text-muted-foreground">{displayRow(row.sheetRow)}</td>
-      <td className="border-b border-grid px-3 py-3">
-        <VideoCell row={row} />
-      </td>
-      <td className="border-b border-grid px-3 py-3">
-        <RowStatus status={row.status} paused={paused} />
-      </td>
-      <td className={cn("border-b border-grid px-3 py-3", fresh && "animate-cell-fill")}>
-        <DescriptionCell row={row} paused={paused} retrying={retrying} canRetry={canRetry} onOpen={onOpen} onRetry={onRetry} />
-      </td>
-    </tr>
+    <span className="flex flex-wrap items-center gap-1">
+      {chip("EN", !!row.summary, t.run.tabs.summaryEn)}
+      {chip("ES", !!row.summaryEs, t.run.tabs.summaryEs)}
+      {(["en", "es"] as const).map((language) => {
+        const state = transcript(language);
+        if (state === null) return null;
+        const label = `${language.toUpperCase()} ${t.run.transcript[state]}`;
+        return (
+          <span
+            key={language}
+            title={language === "en" ? t.run.tabs.transcriptEn : t.run.tabs.transcriptEs}
+            className={cn(
+              "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              state === "done" ? "bg-info-soft text-info" : "bg-muted text-muted-foreground",
+            )}
+          >
+            <Captions className="size-3" aria-hidden />
+            {label}
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
-function DescriptionCell({ row, paused, retrying, canRetry, onOpen, onRetry }: Omit<RowProps, "fresh">) {
+type CellProps = {
+  row: JobRow;
+  primary: Language;
+  paused: boolean;
+  retrying: boolean;
+  canRetry: boolean;
+  onOpen: (mode: Mode) => void;
+  onRetry: () => void;
+};
+
+function DescriptionCell({ row, primary, paused, retrying, canRetry, onOpen, onRetry }: CellProps) {
   const { t } = useI18n();
   const r = t.run;
   switch (row.status) {
-    case "done":
+    case "done": {
+      const text = (primary === "es" ? row.summaryEs : row.summary) ?? row.summary ?? row.summaryEs;
       return (
-        <button
-          type="button"
-          onClick={() => onOpen("view")}
-          className="group block w-full rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <span className="line-clamp-3 whitespace-pre-line text-foreground/90">{row.summary}</span>
-          <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
-            <span className="text-primary group-hover:underline">{r.readFull}</span>
-            {row.edited && <span className="rounded bg-secondary px-1.5 py-0.5 text-muted-foreground">{r.edited}</span>}
-            {row.duplicateOf !== null && <span className="text-muted-foreground">{r.sameAs(String(displayRow(row.duplicateOf)))}</span>}
-            {row.warning && <span className="text-warning">{row.warning}</span>}
-          </span>
-        </button>
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={() => onOpen("view")}
+            className="group block w-full rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <span className="line-clamp-3 whitespace-pre-line text-foreground/90">{text}</span>
+            <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
+              <span className="text-primary group-hover:underline">{r.readFull}</span>
+              {row.edited && <span className="rounded bg-secondary px-1.5 py-0.5 text-muted-foreground">{r.edited}</span>}
+              {row.duplicateOf !== null && <span className="text-muted-foreground">{r.sameAs(String(displayRow(row.duplicateOf)))}</span>}
+              {row.warning && <span className="text-warning">{row.warning}</span>}
+            </span>
+          </button>
+          <Availability row={row} />
+        </div>
       );
+    }
     case "running":
       return paused ? (
         <span className="text-muted-foreground">{r.collectedOnResume}</span>
@@ -428,55 +668,126 @@ function DescriptionCell({ row, paused, retrying, canRetry, onOpen, onRetry }: O
       return <span className="text-muted-foreground">{r.filledKept}</span>;
     case "invalid":
       return <span className="text-warning">{r.invalidRow}</span>;
+    case "excluded":
+      return <span className="text-muted-foreground">{t.status.excluded}</span>;
     default:
       return <span className="text-muted-foreground">{r.waitingTurn}</span>;
   }
 }
 
+type Tab = "summaryEn" | "summaryEs" | "transcriptEn" | "transcriptEs";
+
 function SummaryDialog({
+  jobId,
   row,
   mode,
+  primary,
   canRegenerate,
   busy,
   onMode,
   onClose,
   onSave,
   onRegenerate,
+  onPdf,
 }: {
+  jobId: string;
   row: JobRow | null;
-  mode: "view" | "edit" | "regenerate";
+  mode: Mode;
+  primary: Language;
   canRegenerate: boolean;
   busy: boolean;
-  onMode: (mode: "view" | "edit" | "regenerate") => void;
+  onMode: (mode: Mode) => void;
   onClose: () => void;
-  onSave: (text: string) => void;
+  onSave: (text: string, language: Language) => void;
   onRegenerate: () => void;
+  onPdf: () => void;
 }) {
   const { t } = useI18n();
   const r = t.run;
+  const firstTab: Tab = primary === "es" ? "summaryEs" : "summaryEn";
+  const [tab, setTab] = useState<Tab>(firstTab);
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState("");
   const [draftFor, setDraftFor] = useState<string | null>(null);
+  const [details, setDetails] = useState<{ key: string; item: ReportItem | null } | null>(null);
 
-  // Start each edit from the row's current text.
-  const draftKey = row && mode === "edit" ? `${row.sheetRow}:${row.updatedAt}` : null;
+  const editLanguage: Language = tab === "summaryEs" ? "es" : "en";
+  const summaryText = row ? (editLanguage === "es" ? row.summaryEs : row.summary) : null;
+
+  // Start each edit from the current text of the language being edited.
+  const draftKey = row && mode === "edit" ? `${row.sheetRow}:${editLanguage}:${row.updatedAt}` : null;
   if (draftKey !== draftFor) {
     setDraftFor(draftKey);
-    setDraft(row?.summary ?? "");
+    setDraft(summaryText ?? "");
   }
 
+  // Reset to the Description-column language each time a different row opens.
+  const [openFor, setOpenFor] = useState<number | null>(null);
+  if ((row?.sheetRow ?? null) !== openFor) {
+    setOpenFor(row?.sheetRow ?? null);
+    setTab(mode === "edit" ? "summaryEn" : firstTab);
+  }
+
+  // Transcripts are long, so they are loaded only when the dialog opens.
+  const detailsKey = row && row.status === "done" ? `${row.sheetRow}:${row.transcripts.en}:${row.transcripts.es}` : null;
+  useEffect(() => {
+    if (!detailsKey || !row) return;
+    let alive = true;
+    api.report(jobId, [row.sheetRow]).then(
+      (report) => alive && setDetails({ key: detailsKey, item: report.items[0] ?? null }),
+      () => alive && setDetails({ key: detailsKey, item: null }),
+    );
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, detailsKey]);
+  const item = details?.key === detailsKey ? details.item : undefined;
+
+  const shownText =
+    tab === "summaryEn" ? row?.summary : tab === "summaryEs" ? row?.summaryEs : item?.transcripts[tab === "transcriptEn" ? "en" : "es"]?.text;
+
   const copy = async () => {
-    if (!row?.summary) return;
-    await navigator.clipboard.writeText(row.summary);
+    if (!shownText) return;
+    await navigator.clipboard.writeText(shownText);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2_000);
   };
 
   const cost = row?.isShort ? CREDIT_COST.short : CREDIT_COST.long;
+  const tabs: { id: Tab; label: string }[] = [
+    ...(primary === "es"
+      ? [
+          { id: "summaryEs" as const, label: r.tabs.summaryEs },
+          { id: "summaryEn" as const, label: r.tabs.summaryEn },
+        ]
+      : [
+          { id: "summaryEn" as const, label: r.tabs.summaryEn },
+          { id: "summaryEs" as const, label: r.tabs.summaryEs },
+        ]),
+    { id: "transcriptEn", label: r.tabs.transcriptEn },
+    { id: "transcriptEs", label: r.tabs.transcriptEs },
+  ];
+
+  const transcriptBody = (language: Language) => {
+    const state = row?.transcripts[language] ?? null;
+    if (item === undefined && state === "done") return <p className="text-sm text-muted-foreground">{r.loadingText}</p>;
+    const entry = item?.transcripts[language];
+    if (entry?.status === "done" && entry.text) return <TextBox text={entry.text} small />;
+    const message =
+      state === "unavailable"
+        ? r.transcriptUnavailable(t.configure.languageWords[language])
+        : state === "pending" || state === "running"
+          ? r.transcriptWaiting
+          : state === "failed"
+            ? r.transcriptFailed
+            : r.transcriptNone;
+    return <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{message}</p>;
+  };
 
   return (
     <Dialog open={row !== null} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-3xl">
         {row && (
           <>
             <DialogHeader>
@@ -484,37 +795,62 @@ function SummaryDialog({
               <DialogDescription>{r.dialogRow(String(displayRow(row.sheetRow)))}</DialogDescription>
             </DialogHeader>
 
-            {mode === "edit" ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="summary-edit">{r.editLabel}</Label>
-                <Textarea
-                  id="summary-edit"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  rows={12}
-                  autoFocus
-                  className="max-h-[55vh] text-sm leading-relaxed"
-                />
-              </div>
-            ) : mode === "regenerate" ? (
+            {mode === "regenerate" ? (
               <p className="text-sm text-muted-foreground">{r.regenerateBody(cost)}</p>
             ) : (
-              <>
-                <div className="max-h-[55vh] overflow-y-auto rounded-md border bg-muted/40 p-4 text-sm leading-relaxed whitespace-pre-line">
-                  {row.summary}
-                </div>
-                {row.warning && <p className="text-sm text-warning">{row.warning}</p>}
-              </>
+              <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
+                <TabsList className="h-auto w-full flex-wrap justify-start">
+                  {tabs
+                    .filter((x) => mode !== "edit" || x.id.startsWith("summary"))
+                    .map((x) => (
+                      <TabsTrigger key={x.id} value={x.id} className="flex-none">
+                        {x.label}
+                      </TabsTrigger>
+                    ))}
+                </TabsList>
+                {(["summaryEn", "summaryEs"] as const).map((id) => (
+                  <TabsContent key={id} value={id} className="mt-3">
+                    {mode === "edit" ? (
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`summary-edit-${id}`}>{r.editLabel}</Label>
+                        <Textarea
+                          id={`summary-edit-${id}`}
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          rows={12}
+                          autoFocus
+                          className="max-h-[50vh] text-sm leading-relaxed"
+                        />
+                      </div>
+                    ) : (id === "summaryEn" ? row.summary : row.summaryEs) ? (
+                      <TextBox text={(id === "summaryEn" ? row.summary : row.summaryEs)!} />
+                    ) : (
+                      <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                        {id === "summaryEs" ? r.spanishMissing : t.pdf.notAvailable}
+                      </p>
+                    )}
+                  </TabsContent>
+                ))}
+                <TabsContent value="transcriptEn" className="mt-3">
+                  {transcriptBody("en")}
+                </TabsContent>
+                <TabsContent value="transcriptEs" className="mt-3">
+                  {transcriptBody("es")}
+                </TabsContent>
+              </Tabs>
             )}
+            {mode === "view" && row.warning && <p className="text-sm text-warning">{row.warning}</p>}
 
             <DialogFooter className="gap-2 sm:justify-between">
               {mode === "view" ? (
                 <>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => onMode("edit")}>
-                      <PenLine aria-hidden />
-                      {r.edit}
-                    </Button>
+                    {tab.startsWith("summary") && row.status === "done" && (
+                      <Button variant="outline" onClick={() => onMode("edit")}>
+                        <PenLine aria-hidden />
+                        {r.edit}
+                      </Button>
+                    )}
                     {canRegenerate && row.videoId && (
                       <Button variant="ghost" onClick={() => onMode("regenerate")}>
                         <RefreshCw aria-hidden />
@@ -522,10 +858,18 @@ function SummaryDialog({
                       </Button>
                     )}
                   </div>
-                  <Button variant="outline" onClick={copy}>
-                    {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-                    {copied ? r.copied : r.copy}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {row.status === "done" && (
+                      <Button variant="outline" onClick={onPdf}>
+                        <FileText aria-hidden />
+                        {r.downloadPdf}
+                      </Button>
+                    )}
+                    <Button variant="outline" onClick={copy} disabled={!shownText}>
+                      {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
+                      {copied ? r.copied : r.copyText}
+                    </Button>
+                  </div>
                 </>
               ) : (
                 <>
@@ -533,7 +877,7 @@ function SummaryDialog({
                     {r.cancel}
                   </Button>
                   {mode === "edit" ? (
-                    <Button onClick={() => onSave(draft)} disabled={busy || !draft.trim()}>
+                    <Button onClick={() => onSave(draft, editLanguage)} disabled={busy || !draft.trim()}>
                       {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Check aria-hidden />}
                       {r.save}
                     </Button>
@@ -550,6 +894,19 @@ function SummaryDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function TextBox({ text, small }: { text: string; small?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "max-h-[50vh] overflow-y-auto rounded-md border bg-muted/40 p-4 leading-relaxed whitespace-pre-line",
+        small ? "text-[13px]" : "text-sm",
+      )}
+    >
+      {text}
+    </div>
   );
 }
 

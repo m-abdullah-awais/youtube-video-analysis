@@ -8,16 +8,18 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { getSetting, setSetting, type Db } from "../db";
-import type { Gateway, PollResult } from "../jobs/runner";
+import type { Gateway, PollResult, TranscriptResult } from "../jobs/runner";
 import { VidiqError } from "./errors";
 export { CREDIT_COST } from "./costs";
 import {
+  type Balance,
   classifyToolError,
+  isMissingTranscript,
   parseBalance,
   parsePollResult,
+  parseTranscript,
   readToolPayload,
   toolErrorText,
-  type Balance,
 } from "./parse";
 
 export const VIDIQ_MCP_URL = new URL("https://mcp.vidiq.com/mcp");
@@ -230,6 +232,14 @@ export function createGateway(db: Db): Gateway {
     },
     async poll(vidiqJobId): Promise<PollResult> {
       return parsePollResult((await callTool(db, "vidiq_job_poll", { mcpJobId: vidiqJobId })) as Parameters<typeof parsePollResult>[0]);
+    },
+    async transcript(videoId, language): Promise<TranscriptResult> {
+      try {
+        return parseTranscript((await callTool(db, "vidiq_video_transcript", { videoId, language })) as { transcription?: unknown });
+      } catch (error) {
+        if (error instanceof VidiqError && isMissingTranscript(error.message)) return { status: "unavailable" };
+        throw error;
+      }
     },
   };
 }

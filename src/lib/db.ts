@@ -62,20 +62,38 @@ CREATE TABLE IF NOT EXISTS job_previews (
 );
 `;
 
+const CREATE_TRANSCRIPTS = `
+CREATE TABLE IF NOT EXISTS row_transcripts (
+  job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  sheet_row INTEGER NOT NULL,
+  language TEXT NOT NULL,
+  status TEXT NOT NULL,
+  text TEXT,
+  error TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (job_id, sheet_row, language)
+);
+`;
+
 /** Columns added after the first release; added in place so existing data is kept. */
 const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["jobs", "name", "TEXT"],
   ["jobs", "summary_language", "TEXT NOT NULL DEFAULT 'auto'"],
   ["job_rows", "edited", "INTEGER NOT NULL DEFAULT 0"],
+  ["job_rows", "summary_es", "TEXT"],
+  ["jobs", "include_transcripts", "INTEGER NOT NULL DEFAULT 1"],
+  ["jobs", "selection", `TEXT NOT NULL DEFAULT '{"mode":"all"}'`],
+  ["job_previews", "summary_es", "TEXT"],
 ];
 
 export function migrate(db: Db): void {
   db.exec(SCHEMA);
+  db.exec(CREATE_PREVIEWS);
+  db.exec(CREATE_TRANSCRIPTS);
   for (const [table, column, definition] of ADDED_COLUMNS) {
     const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     if (!columns.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
-  db.exec(CREATE_PREVIEWS);
   db.exec("CREATE INDEX IF NOT EXISTS job_rows_updated ON job_rows (job_id, updated_at)");
 }
 

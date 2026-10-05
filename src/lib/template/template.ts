@@ -1,7 +1,11 @@
 /** vidIQ accepts prompts up to 2000 characters; the rest is our instruction. */
-export const MAX_TEMPLATE_LENGTH = 1500;
+export const MAX_TEMPLATE_LENGTH = 1200;
 
-export type SummaryLanguage = "auto" | "en" | "es";
+/** Which language goes into the spreadsheet's Description column; the other gets its own column. */
+export type DescriptionLanguage = "en" | "es";
+
+/** The line vidIQ is asked to put between the English and the Spanish version. */
+export const BILINGUAL_MARKER = "=== ESPAÑOL ===";
 
 export const DEFAULT_TEMPLATE = [
   "Summary: 2-3 sentences on what the video covers and who it is for.",
@@ -15,17 +19,13 @@ export const DEFAULT_TEMPLATE_ES = [
   "Temas: una lista de los temas principales separados por comas.",
 ].join("\n");
 
-const LANGUAGE_INSTRUCTION: Record<SummaryLanguage, string> = {
-  auto: "Write it in the language spoken in the video.",
-  en: "Write it in English.",
-  es: "Write it in Spanish.",
-};
-
 const INSTRUCTION = [
   "Write a summary of this video to be used as its YouTube description.",
   "Follow the template below exactly: use the same section names, in the same order,",
   "with nothing before the first section or after the last one.",
   'Write plain text without Markdown symbols such as # or **. Use "- " for bullet points.',
+  `Write it twice: first in English, then a line containing only ${BILINGUAL_MARKER},`,
+  "then the same summary in Spanish with the section names translated to Spanish.",
 ].join(" ");
 
 /** Why a template cannot be used, or null when it is fine. */
@@ -35,10 +35,32 @@ export function templateProblem(template: string): "templateEmpty" | "templateTo
   return body.length > MAX_TEMPLATE_LENGTH ? "templateTooLong" : null;
 }
 
-export function buildPrompt(template: string, language: SummaryLanguage = "auto"): string {
+export function buildPrompt(template: string): string {
   const problem = templateProblem(template);
   if (problem) throw new Error(`Cannot use this template: ${problem}`);
-  return `${INSTRUCTION} ${LANGUAGE_INSTRUCTION[language]}\n\nTemplate:\n${template.trim()}`;
+  return `${INSTRUCTION}\n\nTemplate:\n${template.trim()}`;
+}
+
+const MARKER_LINE = /^\s*\**\s*=+\s*(?:ESPA[ÑN]OL|SPANISH)\s*=+\s*\**\s*$/im;
+
+/** Splits vidIQ's two-language answer into clean English and Spanish text, or null if it is not split. */
+export function splitBilingual(text: string, template: string): { en: string; es: string } | null {
+  const match = MARKER_LINE.exec(text);
+  if (!match) return null;
+  const en = cleanSummary(text.slice(0, match.index), template);
+  const es = toPlainText(text.slice(match.index + match[0].length));
+  return en && es ? { en, es } : null;
+}
+
+/**
+ * Warns about template sections missing from the summary. The Spanish half has
+ * translated section names, so the half that matches the template best is checked.
+ */
+export function sectionWarning(template: string, en: string, es: string | null): string | null {
+  const candidates = [missingSections(template, en), ...(es ? [missingSections(template, es)] : [])];
+  const missing = candidates.reduce((best, m) => (m.length < best.length ? m : best));
+  if (missing.length === 0) return null;
+  return `Missing section${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`;
 }
 
 /** Section names from "Name: ..." lines and Markdown headings. */

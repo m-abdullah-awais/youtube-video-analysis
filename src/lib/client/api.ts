@@ -1,8 +1,10 @@
-import type { ConfigureInput, JobSummary, RunListItem, TableInfo } from "@/lib/jobs/service";
+import type { Job, Language } from "@/lib/jobs/repo";
+import type { ConfigureInput, JobSummary, ReportItem, RunListItem, TableInfo } from "@/lib/jobs/service";
 import type { ConnectionState } from "@/lib/vidiq/client";
 import type { Balance } from "@/lib/vidiq/parse";
 
-export type { JobSummary, RunListItem, TableInfo };
+export type { JobSummary, ReportItem, RunListItem, TableInfo };
+export type Report = { job: Job; items: ReportItem[] };
 
 export type VidiqStatus = { connection: ConnectionState; balance: Balance | null; balanceError?: string };
 
@@ -67,10 +69,14 @@ export const api = {
   start: (id: string) => request<JobSummary>(`/api/jobs/${id}/start`, json("POST")),
   pause: (id: string) => request<JobSummary>(`/api/jobs/${id}/pause`, json("POST")),
   retry: (id: string, sheetRow?: number) => request<JobSummary>(`/api/jobs/${id}/retry`, json("POST", { sheetRow })),
-  editRow: (id: string, sheetRow: number, summary: string) =>
-    request<JobSummary>(`/api/jobs/${id}/edit`, json("PUT", { sheetRow, summary })),
+  editRow: (id: string, sheetRow: number, summary: string, language: Language) =>
+    request<JobSummary>(`/api/jobs/${id}/edit`, json("PUT", { sheetRow, summary, language })),
   regenerateRow: (id: string, sheetRow: number) => request<JobSummary>(`/api/jobs/${id}/regenerate`, json("POST", { sheetRow })),
-  downloadUrl: (id: string) => `/api/jobs/${id}/download`,
+  transcripts: (id: string, sheetRows?: number[]) => request<JobSummary>(`/api/jobs/${id}/transcripts`, json("POST", { sheetRows })),
+  include: (id: string, sheetRows: number[]) => request<JobSummary>(`/api/jobs/${id}/include`, json("POST", { sheetRows })),
+  report: (id: string, sheetRows?: number[]) =>
+    request<Report>(`/api/jobs/${id}/report${sheetRows?.length ? `?rows=${sheetRows.join(",")}` : ""}`),
+  downloadUrl: (id: string, transcripts = false) => `/api/jobs/${id}/download${transcripts ? "?transcripts=1" : ""}`,
 };
 
 export function errorMessage(error: unknown): string {

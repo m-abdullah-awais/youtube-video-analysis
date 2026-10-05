@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, CircleDashed, CopyIcon, Loader2, MinusCircle, XCircle } from "lucide-react";
+import { AlertTriangle, Check, CircleDashed, CircleOff, CopyIcon, Loader2, MinusCircle, XCircle } from "lucide-react";
 import { useI18n } from "@/lib/i18n/provider";
 import type { JobRow } from "@/lib/jobs/repo";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ const LOOKS: Record<JobRow["status"], Look> = {
   filled: { className: "bg-secondary text-muted-foreground", Icon: MinusCircle },
   invalid: { className: "bg-warning-soft text-warning", Icon: AlertTriangle },
   duplicate: { className: "bg-secondary text-muted-foreground", Icon: CopyIcon },
+  excluded: { className: "bg-transparent text-muted-foreground ring-1 ring-border ring-inset", Icon: CircleOff },
 };
 
 export function RowStatus({ status, paused }: { status: JobRow["status"]; paused?: boolean }) {

@@ -12,8 +12,11 @@ export async function POST(request: Request) {
     const form = await request.formData().catch(() => null);
     const file = form?.get("file");
     if (!(file instanceof File)) throw new UserError("chooseFile");
-    const template = requestLocale(request) === "es" ? DEFAULT_TEMPLATE_ES : DEFAULT_TEMPLATE;
-    const { jobId } = createFromUpload(db(), store, file.name, new Uint8Array(await file.arrayBuffer()), { template });
+    const spanish = requestLocale(request) === "es";
+    const { jobId } = createFromUpload(db(), store, file.name, new Uint8Array(await file.arrayBuffer()), {
+      template: spanish ? DEFAULT_TEMPLATE_ES : DEFAULT_TEMPLATE,
+      descriptionLanguage: spanish ? "es" : "en",
+    });
     return Response.json({ jobId }, { status: 201 });
   });
 }

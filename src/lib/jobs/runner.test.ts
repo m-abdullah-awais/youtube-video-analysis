@@ -3,10 +3,10 @@ import { openDb, type Db } from "../db";
 import type { PlannedRow } from "../sheet/detect";
 import { VidiqError } from "../vidiq/errors";
 import { configureJob, createJob, getJob, listRows, markRow, retryFailed, setJobStatus } from "./repo";
-import { JobRunner, type Gateway, type PollResult } from "./runner";
+import { JobRunner, type Gateway, type PollResult, type TranscriptResult } from "./runner";
 
 const TEMPLATE = "Summary: one line.\nTopics: list.";
-const GOOD = "### Summary:\n**Great** video.\n\nTopics:\nmusic";
+const GOOD = "### Summary:\n**Great** video.\n\nTopics:\nmusic\n\n=== ESPAÑOL ===\n\nResumen:\nGran video.\n\nTemas:\nmúsica";
 
 let db: Db;
 
@@ -24,7 +24,7 @@ const planned = (sheetRow: number, videoId: string | null, status: PlannedRow["s
 });
 
 function setup(rows: PlannedRow[]) {
-  configureJob(db, "j1", { videoCol: 1, descriptionCol: 2, descriptionHeader: null, template: TEMPLATE, summaryLanguage: "auto", overwrite: false }, rows, new Map());
+  configureJob(db, "j1", { videoCol: 1, descriptionCol: 2, descriptionHeader: null, template: TEMPLATE, descriptionLanguage: "en", includeTranscripts: false, selection: { mode: "all" }, overwrite: false }, rows, new Map());
   setJobStatus(db, "j1", "running");
 }
 
@@ -46,6 +46,10 @@ class FakeGateway implements Gateway {
     this.inFlight++;
     this.maxInFlight = Math.max(this.maxInFlight, this.inFlight);
     return `vj-${row.videoId}`;
+  }
+
+  async transcript(): Promise<TranscriptResult> {
+    return { status: "unavailable" };
   }
 
   async poll(vidiqJobId: string): Promise<PollResult> {
@@ -115,7 +119,7 @@ describe("JobRunner", () => {
 
   it("strips a lead-in before the first section of the summary", async () => {
     setup([planned(1, "aaaaaaaaaaa", "pending")]);
-    await run(new FakeGateway({ aaaaaaaaaaa: [{ state: "done", text: "Here is the summary.\n\nSummary:\nGood.\n\nTopics:\nx" }] }));
+    await run(new FakeGateway({ aaaaaaaaaaa: [{ state: "done", text: "Here is the summary.\n\nSummary:\nGood.\n\nTopics:\nx\n\n=== ESPAÑOL ===\n\nResumen:\nBien." }] }));
     expect(byRow()[1].summary).toBe("Summary:\nGood.\n\nTopics:\nx");
   });
 
@@ -176,7 +180,7 @@ describe("JobRunner", () => {
 
   it("flags summaries that skipped a template section", async () => {
     setup([planned(1, "aaaaaaaaaaa", "pending")]);
-    await run(new FakeGateway({ aaaaaaaaaaa: [{ state: "done", text: "Summary:\nOnly this" }] }));
+    await run(new FakeGateway({ aaaaaaaaaaa: [{ state: "done", text: "Summary:\nOnly this\n\n=== ESPAÑOL ===\n\nResumen:\nBien." }] }));
     expect(byRow()[1]).toMatchObject({ status: "done", warning: "Missing section: Topics" });
   });
 

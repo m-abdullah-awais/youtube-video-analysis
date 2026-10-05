@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useState, type DragEvent } from "react";
-import { Download, FileSpreadsheet, Loader2, MoreHorizontal, Pencil, Trash2, Upload } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Loader2, MoreHorizontal, Pencil, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, errorMessage, type RunListItem } from "@/lib/client/api";
+import { downloadFile } from "@/lib/client/download";
+import { downloadRunPdf } from "@/lib/client/pdf";
 import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import { PanelHeader } from "./panel-header";
@@ -156,7 +158,8 @@ function RunHistory({
   onChanged: () => void;
   onDeleted: (id: string | null) => void;
 }) {
-  const { t, n, dateTime } = useI18n();
+  const i18n = useI18n();
+  const { t, n, dateTime } = i18n;
   const u = t.upload;
   const [expanded, setExpanded] = useState(false);
   const [renaming, setRenaming] = useState<RunListItem | null>(null);
@@ -230,6 +233,31 @@ function RunHistory({
                     <DropdownMenuItem onClick={() => onOpen(run.id)}>
                       <FileSpreadsheet aria-hidden />
                       {u.open}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={run.counts.done === 0}
+                      onClick={() =>
+                        void downloadFile(api.downloadUrl(run.id, true), `${run.name}.${run.format}`).catch((e) =>
+                          toast.error(errorMessage(e)),
+                        )
+                      }
+                    >
+                      <Download aria-hidden />
+                      {t.run.exportSheetTranscripts}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={run.counts.done === 0}
+                      onClick={() => {
+                        toast(t.run.preparingPdf);
+                        void api
+                          .report(run.id)
+                          .then((report) => downloadRunPdf(report, { t, date: i18n.date }))
+                          .then(() => toast.success(t.run.pdfReady))
+                          .catch((e) => toast.error(errorMessage(e)));
+                      }}
+                    >
+                      <FileText aria-hidden />
+                      {t.run.exportPdf}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => {

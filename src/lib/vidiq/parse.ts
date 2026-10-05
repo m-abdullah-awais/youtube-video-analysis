@@ -1,4 +1,4 @@
-import type { PollResult } from "../jobs/runner";
+import type { PollResult, TranscriptResult } from "../jobs/runner";
 import type { VidiqErrorKind } from "./errors";
 
 type ToolResult = { structuredContent?: unknown; content?: unknown; [key: string]: unknown };
@@ -62,6 +62,17 @@ export function classifyToolError(message: string): VidiqErrorKind {
     return "transient";
   }
   return "fatal";
+}
+
+/** vidIQ answers `{ videoId, transcription, language }`; empty text counts as no transcript. */
+export function parseTranscript(payload: { transcription?: unknown; [key: string]: unknown }): TranscriptResult {
+  const text = typeof payload?.transcription === "string" ? payload.transcription.trim() : "";
+  return text ? { status: "done", text } : { status: "unavailable" };
+}
+
+/** vidIQ's answer when a video has no captions in the requested language. */
+export function isMissingTranscript(message: string): boolean {
+  return /no transcript is available|no captions? (are |is )?available/i.test(message);
 }
 
 export type Balance = { unlimited: boolean; total: number | null; resetsAt: string | null };

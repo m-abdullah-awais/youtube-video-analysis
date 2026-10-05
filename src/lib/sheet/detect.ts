@@ -3,7 +3,7 @@ import type { TableRow } from "./workbook";
 
 export type ColumnGuess = { video: number | null; description: number | null; title: number | null };
 export type ColumnMapping = { video: number; description: number | null };
-export type RowStatus = "pending" | "filled" | "invalid" | "duplicate";
+export type RowStatus = "pending" | "filled" | "invalid" | "duplicate" | "excluded";
 
 export type PlannedRow = {
   sheetRow: number;
@@ -46,7 +46,12 @@ export function detectColumns(headers: string[], rows: TableRow[]): ColumnGuess 
   };
 }
 
-export function planRows(rows: TableRow[], mapping: ColumnMapping, options: { overwrite: boolean }): PlannedRow[] {
+/** `include` limits processing to chosen rows; videos in other rows are marked excluded. */
+export function planRows(
+  rows: TableRow[],
+  mapping: ColumnMapping,
+  options: { overwrite: boolean; include?: (sheetRow: number) => boolean },
+): PlannedRow[] {
   const seen = new Set<string>();
   return rows.map((row) => {
     const source = videoSource(row, mapping.video).trim();
@@ -56,6 +61,7 @@ export function planRows(rows: TableRow[], mapping: ColumnMapping, options: { ov
 
     const filled = mapping.description !== null && (row.cells[mapping.description] ?? "").trim() !== "";
     if (filled && !options.overwrite) return { ...base, status: "filled" };
+    if (options.include && !options.include(row.sheetRow)) return { ...base, status: "excluded" };
     if (seen.has(ref.id)) return { ...base, status: "duplicate" };
     seen.add(ref.id);
     return { ...base, status: "pending" };

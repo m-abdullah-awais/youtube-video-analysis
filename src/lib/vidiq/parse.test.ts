@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyToolError, parseBalance, parsePollResult, readToolPayload } from "./parse";
+import { classifyToolError, isMissingTranscript, parseBalance, parsePollResult, parseTranscript, readToolPayload } from "./parse";
 
 describe("readToolPayload", () => {
   it("prefers structured content", () => {
@@ -81,5 +81,22 @@ describe("parseBalance", () => {
 
   it("handles unlimited plans", () => {
     expect(parseBalance({ type: "unlimited" })).toEqual({ unlimited: true, total: null, resetsAt: null });
+  });
+});
+
+describe("parseTranscript", () => {
+  it("reads the transcription text", () => {
+    expect(parseTranscript({ videoId: "x", transcription: "  Hello there.  ", language: "en" })).toEqual({ status: "done", text: "Hello there." });
+  });
+
+  it("treats an empty transcription as unavailable", () => {
+    expect(parseTranscript({ videoId: "x", transcription: "", language: "es" })).toEqual({ status: "unavailable" });
+  });
+
+  it("recognizes vidIQ's missing-language error", () => {
+    expect(
+      isMissingTranscript('No transcript is available in the requested language "es" for video 6aJmN7ly9bA. Retry without the language parameter.'),
+    ).toBe(true);
+    expect(isMissingTranscript("Video not found")).toBe(false);
   });
 });

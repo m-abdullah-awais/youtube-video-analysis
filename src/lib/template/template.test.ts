@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { MAX_TEMPLATE_LENGTH, buildPrompt, cleanSummary, missingSections, templateProblem, templateSections, toPlainText } from "./template";
+import {
+  BILINGUAL_MARKER,
+  MAX_TEMPLATE_LENGTH,
+  buildPrompt,
+  cleanSummary,
+  missingSections,
+  sectionWarning,
+  splitBilingual,
+  templateProblem,
+  templateSections,
+  toPlainText,
+} from "./template";
 
 const TEMPLATE = "Summary: 2-3 sentences.\nKey Points: 3-5 bullets.\nTopics: comma-separated list.";
 
@@ -11,15 +22,14 @@ describe("buildPrompt", () => {
   });
 
   it("stays within vidIQ's 2000 character prompt limit for the longest allowed template", () => {
-    for (const language of ["auto", "en", "es"] as const) {
-      expect(buildPrompt("x".repeat(MAX_TEMPLATE_LENGTH), language).length).toBeLessThanOrEqual(2000);
-    }
+    expect(buildPrompt("x".repeat(MAX_TEMPLATE_LENGTH)).length).toBeLessThanOrEqual(2000);
   });
 
-  it("asks for the chosen summary language", () => {
-    expect(buildPrompt(TEMPLATE, "es")).toMatch(/Write it in Spanish/);
-    expect(buildPrompt(TEMPLATE, "en")).toMatch(/Write it in English/);
-    expect(buildPrompt(TEMPLATE)).toMatch(/language spoken in the video/);
+  it("asks for an English and a Spanish version separated by the marker", () => {
+    const prompt = buildPrompt(TEMPLATE);
+    expect(prompt).toContain(BILINGUAL_MARKER);
+    expect(prompt).toMatch(/first in English/i);
+    expect(prompt).toMatch(/Spanish/);
   });
 
   it("rejects templates that are empty or too long", () => {
@@ -51,6 +61,43 @@ describe("missingSections", () => {
 
   it("matches headings case-insensitively and ignores Markdown markers", () => {
     expect(missingSections(TEMPLATE, "### summary\nx\n**KEY POINTS:**\n- y\n## Topics\nz")).toEqual([]);
+  });
+});
+
+describe("splitBilingual", () => {
+  const real =
+    "Summary: About email.\n\nKey Points:\n- One\n\nTopics: email\n\n=== ESPAÑOL ===\n\nResumen: Sobre el correo.\n\nPuntos Clave:\n- Uno\n\nTemas: correo";
+
+  it("splits a real two-language answer into clean halves", () => {
+    expect(splitBilingual(real, TEMPLATE)).toEqual({
+      en: "Summary: About email.\n\nKey Points:\n- One\n\nTopics: email",
+      es: "Resumen: Sobre el correo.\n\nPuntos Clave:\n- Uno\n\nTemas: correo",
+    });
+  });
+
+  it.each(["=== SPANISH ===", "==== Español ====", "**=== ESPAÑOL ===**", "=== ESPANOL ==="])("accepts the marker written as %j", (marker) => {
+    expect(splitBilingual(`Summary: a\n${marker}\nResumen: b`, TEMPLATE)).toEqual({ en: "Summary: a", es: "Resumen: b" });
+  });
+
+  it("drops a lead-in before the English half", () => {
+    expect(splitBilingual("Here you go.\n\nSummary: a\n=== ESPAÑOL ===\nResumen: b", TEMPLATE)?.en).toBe("Summary: a");
+  });
+
+  it("returns null when there is no marker or a half is empty", () => {
+    expect(splitBilingual("Summary: a\nTopics: b", TEMPLATE)).toBeNull();
+    expect(splitBilingual("Summary: a\n=== ESPAÑOL ===\n   ", TEMPLATE)).toBeNull();
+  });
+});
+
+describe("sectionWarning", () => {
+  it("is quiet when either half has every template section", () => {
+    expect(sectionWarning(TEMPLATE, "Summary: a\nKey Points: b\nTopics: c", "Resumen: a")).toBeNull();
+    const spanishTemplate = "Resumen: 2 frases.\nTemas: lista.";
+    expect(sectionWarning(spanishTemplate, "Summary: a\nTopics: b", "Resumen: a\nTemas: b")).toBeNull();
+  });
+
+  it("names the sections missing from the closer half", () => {
+    expect(sectionWarning(TEMPLATE, "Summary: a\nTopics: c", "Resumen: a")).toBe("Missing section: Key Points");
   });
 });
 

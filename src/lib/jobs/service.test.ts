@@ -60,7 +60,7 @@ describe("summarize", () => {
     const { jobId } = createFromUpload(db, store, "videos.csv", encode(CSV));
     const view = summarize(db, jobId);
     expect(view.counts).toMatchObject({ total: 5, pending: 2, filled: 1, invalid: 1, duplicate: 1 });
-    expect(view.estimate).toEqual({ videos: 2, long: 1, short: 1, credits: 35 });
+    expect(view.estimate).toMatchObject({ videos: 2, long: 1, short: 1, summaryCredits: 35 });
     expect(view.rows[0].title).toBe("One");
   });
 });
@@ -100,7 +100,7 @@ describe("configure", () => {
 describe("downloadResult", () => {
   it("writes finished summaries, including duplicates, into the original file", () => {
     const { jobId } = createFromUpload(db, store, "videos.csv", encode(CSV));
-    completeRow(db, jobId, 1, "Summary:\nFirst", null);
+    completeRow(db, jobId, 1, "Summary:\nFirst", null, null);
     const file = downloadResult(db, store, jobId);
     expect(file.fileName).toBe("videos (summaries).csv");
     expect(file.contentType).toBe("text/csv; charset=utf-8");
@@ -120,7 +120,7 @@ describe("downloadResult", () => {
   it("adds the header for a new Description column", () => {
     const { jobId } = createFromUpload(db, store, "v.csv", encode("Title,Video\nA,https://youtu.be/aaaaaaaaaaa\n"));
     configure(db, store, jobId, { videoCol: 1, descriptionCol: "new", template: "Summary: x", overwrite: false });
-    completeRow(db, jobId, 1, "Done", null);
+    completeRow(db, jobId, 1, "Done", null, null);
     expect(decode(downloadResult(db, store, jobId).data)).toBe("Title,Video,Description\nA,https://youtu.be/aaaaaaaaaaa,Done\n");
   });
 });
