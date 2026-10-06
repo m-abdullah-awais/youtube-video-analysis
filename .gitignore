@@ -55,3 +55,6 @@ claude-rules.md
 
 # portable Node.js and npm cache used by Start.bat
 /.runtime/
+
+.codex
+codex-**.bat
